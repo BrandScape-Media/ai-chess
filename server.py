@@ -30,7 +30,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from uci import Engines
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 FROZEN = getattr(sys, "frozen", False)
 APP_DIR = Path(sys.executable if FROZEN else __file__).resolve().parent
 BUNDLE = Path(getattr(sys, "_MEIPASS", APP_DIR))

@@ -16,6 +16,8 @@ export const SET = {
   /* assistance while playing (chess.com-style options; can be switched before and during a game) */
   assist: {evalbar: false, feedback: false, suggest: false, threat: false, lines: false},
   puzzles: {rating: 1200, played: 0, solved: 0, streakBest: 0, rushBest: 0},
+  /* the AI model that explains moves in the game review (empty: the model you played, if any) */
+  coach: {provider: '', model: '', think: 'none'},
 };
 export const onSettings = {changed: null};   // app.js: refresh seat menus etc.
 
@@ -34,6 +36,7 @@ export async function loadSettings() {
     if (s.profile && s.profile.rating) SET.profile = s.profile;
     if (s.assist) Object.assign(SET.assist, s.assist);
     if (s.puzzles) Object.assign(SET.puzzles, s.puzzles);
+    if (s.coach) Object.assign(SET.coach, s.coach);
   } catch (e) { console.warn('settings', e); }
   applyAppearance(SET.appearance);
 }
@@ -43,7 +46,7 @@ export function saveSettings(now) {
   const go = async () => {
     try {
       const body = {appearance: SET.appearance, chat: SET.chat, personalities: SET.personalities, defaultPersonality: SET.defaultPersonality,
-        modelPersonality: SET.modelPersonality, profile: SET.profile, assist: SET.assist, puzzles: SET.puzzles, providers: SET.providers.map(p => ({id: p.id, base: p.base, name: p.name, kind: p.kind, custom: p.custom, key: p._key || '', clearKey: p._clear}))};
+        modelPersonality: SET.modelPersonality, profile: SET.profile, assist: SET.assist, puzzles: SET.puzzles, coach: SET.coach, providers: SET.providers.map(p => ({id: p.id, base: p.base, name: p.name, kind: p.kind, custom: p.custom, key: p._key || '', clearKey: p._clear}))};
       const s = await api('/api/settings', body);
       SET.providers = s.providers;
       if (onSettings.changed) onSettings.changed();
@@ -82,7 +85,8 @@ function toggle(name, get, set, tip) {
 function lookTab(sec) {
   const a = SET.appearance;
   const apply = () => { applyAppearance(a); hooks.render(); saveSettings(); };
-  sec.append(el('h3', {}, 'Appearance'), el('h4', {}, 'Board'));
+  sec.append(el('h3', {}, 'Appearance'));
+  const boardKids = [], pieceKids = [];
   const sw = el('div', {class: 'swatches'});
   for (const [id, t] of Object.entries(BOARD_THEMES)) {
     const L = id === 'custom' ? a.custom[0] : t.light, D = id === 'custom' ? a.custom[1] : t.dark;
@@ -91,14 +95,13 @@ function lookTab(sec) {
       el('span', {class: 'mini'}, el('i', {style: lb}), el('i', {style: db}), el('i', {style: db}), el('i', {style: lb})), el('small', {}, t.name));
     sw.append(b);
   }
-  sec.append(sw);
+  boardKids.push(sw);
   if (a.board === 'custom') {
     const c1 = el('input', {type: 'color', value: a.custom[0]}), c2 = el('input', {type: 'color', value: a.custom[1]});
     c1.oninput = c2.oninput = () => { a.custom = [c1.value, c2.value]; applyAppearance(a); hooks.render(); };
     c1.onchange = c2.onchange = () => saveSettings();
-    sec.append(el('div', {class: 'row', style: 'margin-top:8px'}, 'Light squares ', c1, ' Dark squares ', c2));
+    boardKids.push(el('div', {class: 'row', style: 'margin-top:8px'}, 'Light squares ', c1, ' Dark squares ', c2));
   }
-  sec.append(el('h4', {}, 'Pieces'));
   const grid = el('div', {class: 'pieceSets'});
   for (const s of PIECE_SETS) {
     const pv = el('span', {class: 'pv'});
@@ -115,7 +118,7 @@ function lookTab(sec) {
       onclick: () => { if (s.id === 'custom' && Object.keys(a.customPieces || {}).length !== 12) { toast('Upload your 12 piece images first (below)'); return; } a.pieces = s.id; apply(); openSettings(); }},
     pv, el('small', {}, s.name)));
   }
-  sec.append(grid);
+  pieceKids.push(grid);
   const up = el('input', {type: 'file', multiple: true, accept: '.svg,.png,.webp'});
   up.onchange = async () => {
     const map = {};
@@ -128,15 +131,16 @@ function lookTab(sec) {
     if (n !== 12) { toast(`Found ${n} of 12 pieces. Name them wK, wQ, wR, wB, wN, wP, bK … bP (.svg or .png).`); return; }
     a.customPieces = map; a.pieces = 'custom'; apply(); openSettings();
   };
-  sec.append(el('div', {class: 'row', style: 'margin-top:10px'}, el('span', {class: 'hint'}, 'Your own set: pick 12 images named wK, wQ, wR, wB, wN, wP, bK, bQ, bR, bB, bN, bP (.svg/.png)'), up));
-  sec.append(el('h4', {}, 'Board options'),
-    el('div', {class: 'swlist'},
+  pieceKids.push(el('div', {class: 'row', style: 'margin-top:10px'}, el('span', {class: 'hint'}, 'Your own set: pick 12 images named wK, wQ, wR, wB, wN, wP, bK, bQ, bR, bB, bN, bP (.svg/.png)'), up));
+  sec.append(group('look-board', 'Board', (BOARD_THEMES[a.board] || {}).name || '', boardKids),
+    group('look-pieces', 'Pieces', (PIECE_SETS.find(p => p.id === a.pieces) || {}).name || '', pieceKids),
+    group('look-options', 'Board options', 'Coordinates, move hints, animation, premoves, sound', [el('div', {class: 'swlist'},
       toggle('Coordinates', () => a.coords !== false, v => { a.coords = v; applyAppearance(a); }, 'Show a-h and 1-8 on the board'),
       toggle('Move hints', () => a.dots !== false, v => { a.dots = v; applyAppearance(a); }, 'Dots on the squares a piece can go to'),
       toggle('Animation', () => a.animate !== false, v => { a.animate = v; applyAppearance(a); }, 'Slide pieces when they move'),
       toggle('Premoves', () => a.premoves !== false, v => { a.premoves = v; }, 'Queue moves while the computer thinks (right-click cancels them)'),
       toggle('Sound', () => a.sound !== false, v => { a.sound = v; }, 'Move and capture sounds'),
-      toggle('Confetti', () => a.confetti !== false, v => { a.confetti = v; }, 'A little celebration when you win')));
+      toggle('Confetti', () => a.confetti !== false, v => { a.confetti = v; }, 'A little celebration when you win'))]));
 }
 
 /* ---------- AI providers ---------- */
@@ -176,12 +180,41 @@ function aiTab(sec) {
       openGroups.add('custom');
       await saveSettings(true); openSettings();
     }}, 'Add provider')));
+  sec.append(coachGroup());
   sec.append(group('local', 'Local apps', `${local.length} apps on this computer`, local.map(card)),
     group('cloud', 'Cloud', cloud.some(p => p.keySet) ? `${cloud.filter(p => p.keySet).length} of ${cloud.length} with a key` : `${cloud.length} services, need an API key`, cloud.map(card)),
     group('custom', 'Custom providers', custom.length ? `${custom.length} added` : 'Any OpenAI-compatible or Anthropic API', [...custom.map(card), addCard]));
 }
+/* the AI coach of the game review: which model explains the moves (it only gets the engine's facts) */
+function coachGroup() {
+  const c = SET.coach, prov = el('select', {}, el('option', {value: ''}, 'The model I played against'), ...SET.providers.map(p => el('option', {value: p.id}, p.name)));
+  prov.value = c.provider || '';
+  const list = el('datalist', {id: 'coachModels'}), model = el('input', {type: 'text', list: 'coachModels', spellcheck: 'false', placeholder: 'model name', value: c.model || '', style: 'width:100%'});
+  const think = el('select', {}, el('option', {value: 'none'}, 'Off (fast)'), el('option', {value: 'low'}, 'Low'), el('option', {value: 'medium'}, 'Medium'));
+  think.value = c.think || 'none';
+  const status = el('span', {class: 's'});
+  const fill = async () => {
+    list.innerHTML = ''; model.disabled = !prov.value;
+    if (!prov.value) { status.textContent = 'Uses the AI model from your game, when there is one.'; return; }
+    status.textContent = 'loading the models…';
+    try {
+      const r = await api('/api/llm/models', {provider: prov.value});
+      for (const m of r.data.filter(m => !/embed/i.test(m.id))) list.append(el('option', {value: m.id, label: m.loaded ? '● loaded' : ''}));
+      if (!model.value && r.data.length) { model.value = (r.data.find(m => m.loaded) || r.data[0]).id; save(); }
+      status.textContent = `${r.data.length} models`;
+    } catch (e) { status.textContent = e.message; }
+  };
+  const save = () => { SET.coach = {provider: prov.value, model: prov.value ? model.value.trim() : '', think: think.value}; saveSettings(); };
+  prov.onchange = () => { model.value = ''; save(); fill(); };
+  model.onchange = think.onchange = save;
+  fill();
+  const sub = c.provider && c.model ? c.model : 'The model you played against';
+  return group('coach', 'Game review coach', sub, [el('div', {class: 'card'},
+    el('span', {class: 's'}, 'In a game review, Explain asks this model about a move. It only gets the engine\'s facts (the best move, the lines, the chances), so it explains instead of guessing.'),
+    el('div', {class: 'grid2'}, el('label', {}, 'Provider'), prov, el('label', {}, 'Model'), el('span', {}, model, list), el('label', {}, 'Thinking'), think), status)]);
+}
 /* collapsible group of cards; remembers which ones are open */
-const openGroups = new Set(['local']);
+const openGroups = new Set(['local', 'look-board', 'eng-installed', 'chat-defaults']);
 function group(key, title, sub, kids) {
   const d = el('details', {class: 'grp'}, el('summary', {}, el('span', {class: 'chev', html: ICONS['caret-down']}), el('b', {}, title), el('small', {}, sub)), el('div', {class: 'grpbody'}, ...kids));
   d.open = openGroups.has(key);
@@ -202,52 +235,55 @@ async function enginesTab(sec) {
     const r = await refreshEngines();
     box.innerHTML = '';
     if (!r) { box.append(el('p', {class: 'err'}, 'Engine list unavailable (is the server running?)')); return; }
-    box.append(el('h4', {}, 'Installed'));
-    if (!r.installed.length) box.append(el('p', {class: 'hint'}, 'Nothing yet besides the built-in engine.'));
+    const inst = [];
+    if (!r.installed.length) inst.push(el('p', {class: 'hint'}, 'Nothing yet besides the built-in engine.'));
     for (const e of r.installed) {
       const plays = (e.variants || ['chess']).map(v => ({chess: 'standard', kingofthehill: 'King of the Hill', '3check': 'Three-check'}[v] || v)).join(', ') + (e.chess960 ? ', Chess960' : '');
-      box.append(el('div', {class: 'card'}, el('div', {class: 'row'}, el('span', {class: 't'}, e.name), el('span', {class: 'tag'}, {elo: 'Elo slider', nodes: 'neural net', maia: 'human-like', time: 'time per move'}[e.kind] || e.kind),
+      inst.push(el('div', {class: 'card'}, el('div', {class: 'row'}, el('span', {class: 't'}, e.name), el('span', {class: 'tag'}, {elo: 'Elo slider', nodes: 'neural net', maia: 'human-like', time: 'time per move'}[e.kind] || e.kind),
         el('span', {class: 'grow'}), el('button', {class: 'danger', onclick: async () => { if (confirm(`Remove ${e.name}?`)) { await api('/api/engines/remove', {id: e.id}); draw(); } }}, 'Remove')),
       el('span', {class: 's'}, 'Plays: ' + plays + (e.elo ? ` · strength ${e.elo[0]}-${e.elo[1]} Elo or full` : '')),
       e.kind === 'maia' ? el('span', {class: 's'}, 'Ratings: ' + Object.keys(e.weights || {}).join(', ')) : null));
     }
+    box.append(group('eng-installed', 'Installed', r.installed.length ? `${r.installed.length} installed, plus the built-in engine` : 'Only the built-in engine', inst));
     let running = false;
     const addPath = el('input', {type: 'text', placeholder: 'C:\\Engines\\myengine.exe', spellcheck: 'false', style: 'flex:1'});
-    const groups = [['top', 'Get engines'], ['veteran', 'Veterans and lesser-known engines']];
-    for (const [g, head] of groups) {
-    box.append(el('h4', {}, head));
-    for (const c of r.catalog.filter(x => (x.group || 'top') === g)) {
-      const job = r.jobs[c.id];
-      const card = el('div', {class: 'card'}, el('div', {class: 'row'}, el('span', {class: 't'}, c.name), el('span', {class: 'grow'}),
-        c.installed && !(job && job.state === 'running') ? el('span', {class: 'ok'}, 'installed') : null,
-        !c.available ? el('span', {class: 's'}, 'no download for this system') :
-          el('button', {class: c.installed ? '' : 'primary', disabled: job && job.state === 'running', onclick: async () => { await api('/api/engines/install', {id: c.id}); draw(); }}, c.installed ? 'Reinstall' : 'Install')),
-      el('span', {class: 's'}, c.about + (c.requires ? ` (installs ${c.requires} too)` : '')));
-      if (job && job.state === 'running') {
-        running = true;
-        const pct = job.total ? Math.round(job.done / job.total * 100) : 0;
-        card.append(el('span', {class: 's'}, job.step + (job.total ? ` · ${(job.done / 1e6).toFixed(1)} of ${(job.total / 1e6).toFixed(1)} MB` : '')), el('div', {class: 'bar'}, el('i', {style: `width:${pct}%`})));
-      } else if (job && job.state === 'error') card.append(el('span', {class: 'err'}, job.step));
-      box.append(card);
+    const groups = [['top', 'Get engines', 'eng-top'], ['veteran', 'Veterans and lesser-known engines', 'eng-vet']];
+    for (const [g, head, key] of groups) {
+      const kids = [], cat = r.catalog.filter(x => (x.group || 'top') === g);
+      for (const c of cat) {
+        const job = r.jobs[c.id];
+        const card = el('div', {class: 'card'}, el('div', {class: 'row'}, el('span', {class: 't'}, c.name), el('span', {class: 'grow'}),
+          c.installed && !(job && job.state === 'running') ? el('span', {class: 'ok'}, 'installed') : null,
+          !c.available ? el('span', {class: 's'}, 'no download for this system') :
+            el('button', {class: c.installed ? '' : 'primary', disabled: job && job.state === 'running', onclick: async () => { await api('/api/engines/install', {id: c.id}); draw(); }}, c.installed ? 'Reinstall' : 'Install')),
+        el('span', {class: 's'}, c.about + (c.requires ? ` (installs ${c.requires} too)` : '')));
+        if (job && job.state === 'running') {
+          running = true; openGroups.add(key);
+          const pct = job.total ? Math.round(job.done / job.total * 100) : 0;
+          card.append(el('span', {class: 's'}, job.step + (job.total ? ` · ${(job.done / 1e6).toFixed(1)} of ${(job.total / 1e6).toFixed(1)} MB` : '')), el('div', {class: 'bar'}, el('i', {style: `width:${pct}%`})));
+        } else if (job && job.state === 'error') card.append(el('span', {class: 'err'}, job.step));
+        kids.push(card);
+      }
+      if (g === 'top') for (const u of r.unavailable)   /* commercial engines: no download, but you can add your own copy */
+        kids.push(el('div', {class: 'card'}, el('div', {class: 'row'}, el('span', {class: 't'}, u.name), el('span', {class: 'tag'}, 'Commercial'), el('span', {class: 'grow'}),
+          el('button', {onclick: () => { const d = addPath.closest('details'); if (d) d.open = true; addPath.scrollIntoView({behavior: 'smooth', block: 'center'}); addPath.focus(); }}, 'Add your copy')), el('span', {class: 's'}, u.about)));
+      const n = cat.filter(c => c.installed).length;
+      box.append(group(key, head, `${cat.length} engines` + (n ? `, ${n} installed` : ''), kids));
     }
-    if (g === 'top') for (const u of r.unavailable)   /* commercial engines: no download, but you can add your own copy */
-      box.append(el('div', {class: 'card'}, el('div', {class: 'row'}, el('span', {class: 't'}, u.name), el('span', {class: 'tag'}, 'Commercial'), el('span', {class: 'grow'}),
-        el('button', {onclick: () => { addPath.scrollIntoView({behavior: 'smooth', block: 'center'}); addPath.focus(); }}, 'Add your copy')), el('span', {class: 's'}, u.about)));
-    }
-    box.append(el('h4', {}, 'Built into the game (no download)'),
+    box.append(group('eng-builtin', 'Built into the game', 'Turochamp (1948) and a random mover, no download', [
       el('div', {class: 'card'}, el('span', {class: 't'}, 'Turochamp (1948)'), el('span', {class: 's'}, 'The first chess program ever written, by Alan Turing and David Champernowne, before any computer could run it. Turing played it by hand in 1952. Recreated from their rules: it looks at its move and your reply, then follows the captures until things calm down.')),
-      el('div', {class: 'card'}, el('span', {class: 't'}, 'Random mover'), el('span', {class: 's'}, 'Plays any legal move. Good for testing chaos mode, or your patience.')));
+      el('div', {class: 'card'}, el('span', {class: 't'}, 'Random mover'), el('span', {class: 's'}, 'Plays any legal move. Good for testing chaos mode, or your patience.'))]));
     const path = addPath;
     const name = el('input', {type: 'text', placeholder: 'Name (optional)'});
     const msg = el('span', {class: 's'});
-    box.append(el('h4', {}, 'Add your own UCI engine'), el('div', {class: 'card'},
+    box.append(group('eng-add', 'Add your own UCI engine', 'Komodo, Ethereal, Rubichess or any other UCI engine', [el('div', {class: 'card'},
       el('div', {class: 'row'}, path, el('button', {onclick: async () => { const r2 = await api('/api/engines/browse', {}); if (r2.path) path.value = r2.path; }}, 'Browse…')),
       el('div', {class: 'row'}, name, el('button', {class: 'primary', onclick: async () => {
         msg.className = 's'; msg.textContent = 'starting the engine…';
         try { const r2 = await api('/api/engines/add', {path: path.value, name: name.value}); msg.className = 'ok'; msg.textContent = 'Added ' + r2.engine.name; setTimeout(draw, 800); }
         catch (e) { msg.className = 'err'; msg.textContent = e.message; }
       }}, 'Add engine')), msg,
-      el('span', {class: 's'}, 'Any engine that speaks UCI works (Komodo, Ethereal, Rubichess, Obsidian, …).')));
+      el('span', {class: 's'}, 'Any engine that speaks UCI works (Komodo, Ethereal, Rubichess, Obsidian, …).'))]));
     clearInterval(pollT);
     if (running) pollT = setInterval(() => { if ($('settings').open && tab === 'engines') draw(); else clearInterval(pollT); }, 1000);
     if (onSettings.changed) onSettings.changed();
@@ -267,7 +303,7 @@ function chatTab(sec) {
   const opts = sel => [el('option', {value: 'random'}, 'Random each game'), ...SET.personalities.map(p => el('option', {value: p.id, selected: sel === p.id}, p.name))];
   const def = el('select', {}, ...opts(SET.defaultPersonality)); def.value = SET.defaultPersonality;
   def.onchange = () => { SET.defaultPersonality = def.value; saveSettings(); };
-  sec.append(el('h4', {}, 'Defaults'), el('div', {class: 'grid2'}, el('label', {}, 'Default for everyone'), def));
+  const defKids = [el('div', {class: 'grid2'}, el('label', {}, 'Default for everyone'), def)];
   const known = new Map();
   for (const P of S.seats) if (P && (P.type === 'llm' || P.type === 'engine')) known.set(personaKey(P), P.type === 'llm' ? P.model : (P.engine || 'built-in engine'));
   for (const k of Object.keys(SET.modelPersonality)) if (!known.has(k)) known.set(k, k.replace(/^(llm|engine):([^|]*\|)?/, ''));
@@ -277,8 +313,9 @@ function chatTab(sec) {
     s.onchange = () => { if (s.value) SET.modelPersonality[k] = s.value; else delete SET.modelPersonality[k]; saveSettings(); };
     g.append(el('label', {title: k}, label), s);
   }
-  if (known.size) sec.append(el('p', {class: 'hint'}, 'Per player (the models and engines you have played):'), g);
-  sec.append(el('h4', {}, `Personalities (${SET.personalities.filter(p => p.on !== false).length} of ${SET.personalities.length} in the random pool)`));
+  if (known.size) defKids.push(el('p', {class: 'hint'}, 'Per player (the models and engines you have played):'), g);
+  const defName = SET.defaultPersonality === 'random' ? 'Random each game' : (SET.personalities.find(p => p.id === SET.defaultPersonality) || {}).name || '';
+  sec.append(group('chat-defaults', 'Defaults', defName + (known.size ? ` · ${known.size} per player` : ''), defKids));
   const list = el('div', {class: 'plist'});
   for (const p of SET.personalities) {
     const name = el('input', {type: 'text', value: p.name, style: 'flex:1'}), prompt = el('textarea', {}, p.prompt);
@@ -299,15 +336,16 @@ function chatTab(sec) {
     if (p.id === openPersona) d.open = true;
     list.append(d);
   }
-  sec.append(list);
-  sec.append(el('div', {class: 'row'}, el('button', {class: 'primary', onclick: () => {
+  const persBtns = el('div', {class: 'row'}, el('button', {class: 'primary', onclick: () => {
     const id = 'p' + Date.now().toString(36);
+    openGroups.add('chat-pers');
     SET.personalities.push({id, name: 'New personality', prompt: 'Describe how they type in the chat: short or chatty, friendly or rude, and what they ignore.', bot: 'friendly', on: true});
     openPersona = id; saveSettings(); openSettings();
   }}, 'Add personality'), el('button', {onclick: () => { if (confirm('Restore the built-in personalities? Your own ones are kept.')) {
     const mine = SET.personalities.filter(p => !DEFAULT_PERSONALITIES.some(d => d.id === p.id));
     SET.personalities = DEFAULT_PERSONALITIES.map(p => ({...p, on: true})).concat(mine); saveSettings(); openSettings();
-  } }}, 'Restore built-in')));
+  } }}, 'Restore built-in'));
+  sec.append(group('chat-pers', 'Personalities', `${SET.personalities.filter(p => p.on !== false).length} of ${SET.personalities.length} in the random pool`, [list, persBtns]));
 }
 export function personaKey(P) { return P.type === 'llm' ? `llm:${P.provider}|${P.model}` : `engine:${P.engine || 'builtin'}`; }
 
@@ -320,6 +358,8 @@ function aboutTab(sec) {
     el('p', {class: 'hint'}, 'From the lichess project; see web/pieces/LICENSES.md.'),
     el('div', {}, ...PIECE_SETS.filter(s => s.lic).map(s => el('div', {class: 'hint'}, `${s.name}: ${s.by} (${s.lic})`))),
     el('h4', {}, 'Engines'),
-    el('p', {class: 'hint'}, 'The installable engines (Stockfish, Leela Chess Zero, Maia, Arasan and the rest) are separate programs with their own licenses, downloaded from their official releases only when you click Install.'));
+    el('p', {class: 'hint'}, 'Stockfish (GPL-3.0) comes with the game. The other engines (Leela Chess Zero, Maia, Arasan and the rest) are separate programs with their own licenses, downloaded from their official releases only when you click Install.'),
+    el('h4', {}, 'Data'),
+    el('p', {class: 'hint'}, 'Puzzles from the lichess puzzle database, opening names from lichess-org/chess-openings (both CC0).'));
 }
 export {isImageSet};

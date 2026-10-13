@@ -35,7 +35,9 @@ CATALOG = [
                 "win-arm64": ["*windows-arm64*.zip"],
                 "linux-x64": ["*linux-x86-64-universal.tar*", "*linux-x86-64-avx2.tar*", "*linux-x86-64.tar*"],
                 "linux-arm64": ["*linux-arm64*.tar*"],
-                "mac": ["*macos*.tar*"]}},
+                "mac-arm64": ["*macos*universal*", "*macos-m1-apple-silicon*", "*macos*apple*", "*macos*arm*", "*macos*aarch64*"],
+                "mac-x64": ["*macos*universal*", "*macos-x86-64-avx2*", "*macos-x86-64*"],
+                "mac": ["*macos*.tar*", "*macos*.zip", "*mac*.tar*", "*mac*.zip"]}},
     {"id": "fairy-stockfish", "name": "Fairy-Stockfish", "kind": "elo", "repo": "fairy-stockfish/Fairy-Stockfish",
      "about": "Stockfish for chess variants: plays King of the Hill and Three-check too.",
      "assets": {"win-x64": ["fairy-stockfish_x86-64-bmi2.exe", "fairy-stockfish_x86-64-modern.exe", "fairy-stockfish_x86-64.exe"],
@@ -103,6 +105,17 @@ def platform_key():
     if s == "darwin":
         return "mac"
     return "linux-arm64" if arm else "linux-x64"
+
+
+def asset_patterns(c):
+    """The download patterns for this computer: any-platform ones, or the platform's; a Mac tries the patterns for its chip first,
+    then the general Mac ones (each download is tested, so a build that doesn't run here is skipped)."""
+    pk, arm = platform_key(), platform.machine().lower() in ("arm64", "aarch64")
+    if "*" in c["assets"]:
+        return c["assets"]["*"]
+    keys = [pk] if pk != "mac" else ["mac-arm64" if arm else "mac-x64", "mac"]
+    pats = [p for k in keys for p in c["assets"].get(k, [])]
+    return list(dict.fromkeys(pats)) or None
 
 
 class EngineProcess:
@@ -259,7 +272,7 @@ class Engines:
         pk = platform_key()
         cat = []
         for c in CATALOG:
-            avail = "*" in c["assets"] or pk in c["assets"]
+            avail = bool(asset_patterns(c))
             cat.append({k: c[k] for k in ("id", "name", "about", "kind")} | {"available": avail, "installed": bool(self.get(c["id"])),
                                                                             "requires": c.get("requires"), "group": c.get("group", "top")})
         return {"installed": [{k: e.get(k) for k in ("id", "name", "kind", "variants", "chess960", "elo", "catalog", "weights", "path", "author")}
@@ -343,7 +356,10 @@ class Engines:
                 self._job(cid, done=got)
 
     def _release(self, repo):
-        req = urllib.request.Request(f"https://api.github.com/repos/{repo}/releases/latest", headers=UA | {"Accept": "application/vnd.github+json"})
+        h = UA | {"Accept": "application/vnd.github+json"}
+        if os.environ.get("GITHUB_TOKEN"):   # the release build runs on GitHub's servers, where the anonymous limit is shared
+            h["Authorization"] = "Bearer " + os.environ["GITHUB_TOKEN"]
+        req = urllib.request.Request(f"https://api.github.com/repos/{repo}/releases/latest", headers=h)
         with urllib.request.urlopen(req, timeout=30) as r:
             return json.load(r)
 
@@ -360,7 +376,7 @@ class Engines:
             self._job(cid, step="looking up the latest release")
             rel = self._release(c["repo"])
             assets = rel.get("assets", [])
-            pats = c["assets"].get("*") or c["assets"].get(platform_key())
+            pats = asset_patterns(c)
             if not pats:
                 raise RuntimeError(f"no download for this platform ({platform_key()}); download it yourself and use 'Add engine'")
             target = self.dir / cid
@@ -414,7 +430,9 @@ class Engines:
                     self._register(entry)
                     self._job(cid, state="done", step="installed")
                     return
-            raise RuntimeError("no build worked on this machine: " + "; ".join(errors) if errors else "no matching download found")
+            if errors:
+                raise RuntimeError("no build worked on this machine: " + "; ".join(errors))
+            raise RuntimeError("no matching download found among: " + ", ".join(a["name"] for a in assets[:30]))
         except Exception as e:
             self._job(cid, state="error", step=str(e))
 
@@ -433,6 +451,17 @@ class Engines:
             with tarfile.open(dl) as t:
                 t.extractall(target, filter="data") if hasattr(tarfile, "data_filter") else t.extractall(target)
             dl.unlink()
+        cands = self._executables(target, cid)
+        if not cands:
+            raise RuntimeError("no engine executable in the download")
+        exe = cands[0]
+        if sys.platform != "win32":
+            exe.chmod(exe.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        return exe
+
+    @staticmethod
+    def _executables(target, cid):
+        """The programs in an unpacked engine folder, most likely first (named after the engine, not a test build, biggest)."""
         cands = []
         for p in target.rglob("*"):
             if not p.is_file():
@@ -443,14 +472,55 @@ class Engines:
                     cands.append(p)
             elif "." not in n or n.endswith((".bin", "-universal")) or os.access(p, os.X_OK):
                 cands.append(p)
-        if not cands:
-            raise RuntimeError("no engine executable in the download")
         key = cid.split("-")[0]
         cands.sort(key=lambda p: (key not in p.name.lower(), "test" in p.name.lower(), -p.stat().st_size))
-        exe = cands[0]
-        if sys.platform != "win32":
-            exe.chmod(exe.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-        return exe
+        return cands
+
+    # ---------- Stockfish out of the box ----------
+    def ensure_stockfish(self, bundle=None):
+        """On the first start Stockfish is set up, so reviews and the evaluation bar use it from the beginning: copied from the
+        build shipped inside the program, or downloaded when there is none (running from source) or it doesn't run on this CPU.
+        Done once: if you remove Stockfish afterwards it stays removed. Returns True when Stockfish is installed."""
+        mark = self.dir / ".stockfish-setup"
+        if self.get("stockfish"):
+            return True
+        if mark.exists() or self.jobs.get("stockfish", {}).get("state") == "running":
+            return False
+        self.jobs["stockfish"] = {"state": "running", "step": "setting up Stockfish", "done": 0, "total": 0, "auto": True}
+        if bundle and self._from_bundle(Path(bundle) / "stockfish"):
+            self._job("stockfish", state="done", step="installed")
+        else:
+            self._install(next(x for x in CATALOG if x["id"] == "stockfish"))
+        self.jobs["stockfish"]["auto"] = True
+        if self.get("stockfish"):
+            mark.write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
+            return True
+        return False
+
+    def _from_bundle(self, src):
+        """Install the Stockfish build that ships inside the program. False when there is none or it won't run here."""
+        if not src.is_dir():
+            return False
+        target = self.dir / "stockfish"
+        try:
+            self._job("stockfish", step="installing the included Stockfish")
+            shutil.rmtree(target, ignore_errors=True)
+            shutil.copytree(src, target)
+            for exe in self._executables(target, "stockfish")[:4]:
+                if sys.platform != "win32":
+                    exe.chmod(exe.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+                try:
+                    d = self.probe(str(exe))
+                except Exception:   # a build for a newer CPU: try the next one, then download
+                    continue
+                ver = (src / "VERSION").read_text(encoding="utf-8").strip() if (src / "VERSION").exists() else None
+                self._register({"id": "stockfish", "name": d["name"], "path": self.relpath(exe), "args": [], "catalog": "stockfish",
+                                "kind": "elo" if d["elo"] else "time", "version": ver, "bundled": True} | d)
+                return True
+        except OSError:
+            pass
+        shutil.rmtree(target, ignore_errors=True)
+        return False
 
     # ---------- playing ----------
     def stop_proc(self, prefix):
@@ -528,8 +598,9 @@ class Engines:
                     elif clk:
                         go = "go" + (f" depth {depth}" if depth else "") + clk
                         tmo = max(c["wtime"], c["btime"]) / 1000 + 30
-                    elif depth:   # depth limit, capped so a deep search can't hang the game
-                        go, tmo = f"go depth {depth} movetime 20000", 50
+                    elif depth:   # depth limit, capped so a deep search can't hang the game (or the review's time per position)
+                        cap = max(50, min(20000, int(req.get("movetime") or 20000)))
+                        go, tmo = f"go depth {depth} movetime {cap}", cap / 1000 + 30
                     else:
                         ms = int(req.get("movetime") or 1000)
                         go, tmo = f"go movetime {ms}", ms / 1000 + 30

@@ -30,7 +30,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from uci import Engines
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 FROZEN = getattr(sys, "frozen", False)
 APP_DIR = Path(sys.executable if FROZEN else __file__).resolve().parent
 BUNDLE = Path(getattr(sys, "_MEIPASS", APP_DIR))
@@ -500,6 +500,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, {"path": browse_file() if self.client_address[0] in ("127.0.0.1", "::1") else None})
         elif path == "/api/history":
             self.send(200, {"games": history(data)})
+        elif path == "/api/practice":
+            self.send(200, {"items": practice(data)})
         elif path == "/api/move" and CFG["agent"]:
             self.relay_move(data)
         else:
@@ -547,7 +549,8 @@ history_lock = threading.Lock()
 
 
 def history(data):
-    """Finished games (data/history.json, newest last). {"add": game} | {"remove": id} | {"clear": true} | {} to list."""
+    """Finished games (data/history.json, newest last).
+    {"add": game} | {"update": {"id", "review"}} (the game review, saved once it is done) | {"remove": id} | {"clear": true} | {} to list."""
     with history_lock:
         games = load_json(data_path("history.json"), [])
         if not isinstance(games, list):
@@ -558,6 +561,12 @@ def history(data):
             games = [x for x in games if x.get("id") != g["id"]] + [g]
             games = games[-1000:]
             changed = True
+        elif isinstance(data.get("update"), dict) and data["update"].get("id"):
+            u = data["update"]
+            for g in games:
+                if g.get("id") == u["id"] and isinstance(u.get("review"), dict):
+                    g["review"] = u["review"]
+                    changed = True
         elif data.get("remove"):
             games = [x for x in games if x.get("id") != data["remove"]]
             changed = True
@@ -566,6 +575,39 @@ def history(data):
         if changed:
             save_json(data_path("history.json"), games)
         return games
+
+
+practice_lock = threading.Lock()
+
+
+def practice(data):
+    """Positions from your own games where you went wrong, to practise later (data/practice.json, at most 500).
+    {"add": [items]} | {"update": {"id", "tries", "solved", "streak", "last"}} | {"remove": id} | {} to list."""
+    with practice_lock:
+        items = load_json(data_path("practice.json"), [])
+        if not isinstance(items, list):
+            items = []
+        changed = False
+        if isinstance(data.get("add"), list):
+            have = {x.get("id") for x in items}
+            for it in data["add"]:
+                if isinstance(it, dict) and it.get("id") and it["id"] not in have:
+                    items.append(it)
+                    have.add(it["id"])
+                    changed = True
+            items = items[-500:]
+        if isinstance(data.get("update"), dict) and data["update"].get("id"):
+            u = data["update"]
+            for it in items:
+                if it.get("id") == u["id"]:
+                    it.update({k: v for k, v in u.items() if k in ("tries", "solved", "streak", "last")})
+                    changed = True
+        if data.get("remove"):
+            items = [x for x in items if x.get("id") != data["remove"]]
+            changed = True
+        if changed:
+            save_json(data_path("practice.json"), items)
+        return items
 
 
 def browse_file():
@@ -640,6 +682,7 @@ def main():
     ap.add_argument("--exit-when-idle", type=float, default=90 if FROZEN else 0, metavar="SEC",
                     help="quit when the page has been closed this long (default 90 for the .exe, off otherwise)")
     ap.add_argument("--data", default=None, help="folder for settings, saved game and engines (default: ./data)")
+    ap.add_argument("--no-stockfish", action="store_true", help="don't set up Stockfish on the first start")
     a = ap.parse_args()
     DATA = Path(a.data) if a.data else APP_DIR / "data"
     if not writable(DATA):
@@ -666,6 +709,8 @@ def main():
     state = load_json(data_path(CFG["state"]), {})
     settings = load_json(data_path("settings.json"), {})
     engines = Engines(DATA)
+    if not a.no_stockfish:   # first start: Stockfish from the copy inside the program, or downloaded (in the background)
+        threading.Thread(target=engines.ensure_stockfish, args=(BUNDLE / "engines",), daemon=True).start()
     print(f"ai-chess {VERSION} running at {url}")
     if a.lan and lan_ip():
         print(f"On your network:      http://{lan_ip()}:{port}")

@@ -19,10 +19,11 @@ jobs:
         with:
           node-version: 22
       - run: node tests/core.test.js
+      - run: node tests/review.test.js
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m py_compile server.py uci.py
+      - run: python -m py_compile server.py uci.py tools/bundle_stockfish.py
 
   build:
     needs: test
@@ -46,12 +47,19 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pyinstaller pillow   # pillow turns the .ico into the macOS .icns
+      - name: Stockfish for this system (shipped inside the program)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python tools/bundle_stockfish.py bundle
       - name: Build
         shell: bash
         run: |
-          pyinstaller --noconfirm --onefile --windowed --name ai-chess --icon assets/ai-chess.ico --add-data "web${{ matrix.sep }}web" server.py
+          pyinstaller --noconfirm --onefile --windowed --name ai-chess --icon assets/ai-chess.ico --add-data "web${{ matrix.sep }}web" --add-data "bundle/stockfish${{ matrix.sep }}engines/stockfish" server.py
           if [ -f dist/ai-chess.exe ]; then mv dist/ai-chess.exe "dist/${{ matrix.asset }}"; else mv dist/ai-chess "dist/${{ matrix.asset }}"; fi
           ls -la dist
+      - name: Smoke test (starts the program, checks the page and the included Stockfish)
+        shell: bash
+        run: python tools/smoke_test.py "dist/${{ matrix.asset }}"
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}

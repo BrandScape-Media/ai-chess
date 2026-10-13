@@ -50,6 +50,7 @@
   <aside class="panel" aria-label="Game">
     <div class="ptabs" role="tablist">
       <button data-tab="play" class="on" data-ic="list-numbers">Moves</button>
+      <button data-tab="review" data-ic="chart-line" hidden>Review</button>
       <button data-tab="new" data-ic="plus">New game</button>
       <button data-tab="chat" data-ic="chat-circle-text">Chat<span class="badge" id="chatBadge"></span></button>
     </div>
@@ -75,6 +76,10 @@
         <button id="bPause" hidden title="Pause or resume the computer players (P)" data-ic="pause">Pause</button>
         <button id="bResign" data-ic="flag">Resign</button>
       </div>
+    </section>
+
+    <section class="tab review" id="tab-review" hidden>
+      <div class="rv" id="rvBody"></div>
     </section>
 
     <section class="tab setup" id="tab-new" hidden>
@@ -167,7 +172,7 @@
     </section>
   </aside>
 </div>
-<div id="strengthPop" class="pop" hidden role="dialog" aria-label="Engine strength"></div>
+<div id="strengthPop" class="pop" hidden role="dialog" aria-label="Player"></div>
 <div id="optsPop" class="pop" hidden role="dialog" aria-label="Game options"></div>
 <div id="promo" hidden><div class="box" id="promoBox"></div></div>
 <dialog id="settings"></dialog>

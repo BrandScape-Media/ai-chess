@@ -88,7 +88,8 @@ export const CLASSES = {
   inaccuracy: {name: 'Inaccuracy', glyph: '?!', col: '#e0b443'},
   mistake: {name: 'Mistake', glyph: '?', col: '#e3893c'},
   blunder: {name: 'Blunder', glyph: '??', col: '#d9483b'},
-  illegal: {name: 'Illegal move', icon: 'warning-diamond', col: '#b04fc4'},
+  illegal: {name: 'Illegal move', glyph: '???', col: '#b04fc4'},
+  win: {name: 'Winning move', icon: 'crown-fill', col: '#d9a93a'},
 };
 export function classify(before, after, mover, move) {
   if (!before || !after) return null;

@@ -12,6 +12,8 @@ export const S = {
   viewPly: null, sel: -1, selFree: false, targets: new Map(), tgtHide: new Set(), thinking: false, info: '', say: '', sayBy: -1,
   eng: null, llmCtl: null, llmT0: 0, lastOn: new Map(), arrows: [], circles: [], paused: false, peek: false, inactive: false,
   premoves: [], preSel: -1,
+  /* time: ms spent on each move, the clocks after each ply (clockAt[0] is the start), the move being thought about now */
+  times: [], clockAt: [], turnMs: 0, tickT: 0,
   config: {agent: null},
 };
 

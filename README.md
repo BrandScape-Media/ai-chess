@@ -87,11 +87,13 @@ Like the chat on chess.com: talk to the model while you play. Every computer opp
 * **Clocks:** bullet (1, 1|1, 2|1), blitz (3, 3|2, 5), rapid (10, 10|5, 15|10) or 30 minutes. Everybody plays on the clock: engines manage their time like in a real game, and AI models can lose on time (or play untimed if you prefer).
 * **Premoves:** queue one or several moves while the opponent thinks. In chaos mode they are played even when they've become illegal.
 * **Game history** with the winner of every game, replay and PGN.
-* **Game review:** when a game ends you get your accuracy, your rating change and how many best, excellent and good moves you played (and the brilliant ones). Step through the game with the evaluation, move feedback and best-move arrows, and move the pieces yourself to try other lines.
+* **Game review:** when a game ends you get your accuracy, your rating change and how many best, excellent and good moves you played (and the brilliant ones). Step through the game with the evaluation, move feedback and best-move arrows, and move the pieces yourself to try other lines. The review panel has both sides' accuracy, an evaluation graph you can click, the key moments (`[` and `]` jump between them), a coach line for every move, and **Retry** on your mistakes: find a better move from the same position.
 * **Puzzles:** about 3,000 puzzles from the lichess puzzle database (CC0), with your own puzzle rating, **Puzzle Streak** (one mistake ends it) and **Puzzle Rush** (5 minutes, 3 strikes).
 * **Assistance like on chess.com:** evaluation bar, move feedback (best, excellent, inaccuracy, mistake, blunder), suggestion and threat arrows, engine line. Switch them on before the game or from the gear during it. They use Stockfish (or another installed engine) and work offline.
 * **Ratings:** engines show realistic Elo estimates, every AI model gets a random rating for the game, and your own rating goes up and down as you win and lose.
 * **Hints** (best move from Stockfish or the built-in engine) and **takebacks**, each can be switched off.
+* Move list with the time spent on every move. Takebacks also take back the clock, and while reviewing, the clocks show the time left at that move. A crown marks the winning move and `???` an illegal one.
+* Click a player's picture or name for their card: change an engine's strength, or allow illegal moves for that side, in the middle of a game.
 * Move list with review, flip board, PGN/FEN export, the game is saved automatically.
 * **12 piece sets** and **11 board themes**, custom colors, or upload your own pieces.
 

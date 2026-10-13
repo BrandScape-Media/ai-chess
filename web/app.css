@@ -119,6 +119,9 @@ body.blindfold .pc{opacity:0}
 .fbadge svg{width:62%;height:62%}
 #moves .fbm{margin-left:4px;font-weight:800;font-size:12px;display:inline-grid;place-items:center}
 #moves .fbm svg{width:12px;height:12px}
+.fbadge.g3{font-size:calc(var(--sq)*.12);letter-spacing:-.06em}
+#moves .mt{margin-left:auto;padding-left:6px;font:500 10.5px/1 var(--mono);color:var(--faint);flex:none}
+#moves .m.cur .mt{color:var(--muted)}
 #eline{font:500 12px/1.4 var(--mono);color:var(--text);margin-top:5px;padding:5px 8px;background:var(--panel2);border-radius:var(--r-ctl);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* review board: your own side line washes the squares out a little (not the pieces) */
@@ -561,3 +564,41 @@ input.switch.sm:checked::after{transform:translateX(12px)}
   .panel{position:static;height:auto;min-height:60dvh}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+/* player card (click a player's picture or name) */
+.player .avatar,.player .name{cursor:pointer}
+.player .name:hover{text-decoration:underline;text-underline-offset:3px}
+.playerpop .pc-head{display:flex;align-items:center;gap:12px}
+.playerpop .pc-head .avatar{width:64px;height:64px;border-radius:10px;box-shadow:0 6px 16px #0006}
+.playerpop .pc-who{display:flex;flex-direction:column;gap:3px;min-width:0}
+.playerpop .pc-who b{font-weight:650;font-size:15px}
+.playerpop .pc-who .rating,.playerpop .pc-who .side{color:var(--muted);font-size:13px}
+.playerpop .est{white-space:normal;overflow-wrap:anywhere}
+.playerpop .swlist{background:var(--panel2);max-width:none}
+.playerpop .swl{padding:9px 12px;font-size:13.5px}
+.playerpop .pc-btns{display:flex;gap:8px}
+.playerpop .pc-btns button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.playerpop .pc-btns svg{width:16px;height:16px}
+.grpbody .swlist{background:var(--panel3);max-width:none}
+.grpbody>.swatches,.grpbody>.pieceSets{padding:4px 6px 6px}
+/* game review panel */
+#review{margin:10px 12px 0;display:flex;flex-direction:column;gap:8px}
+#review .rv-acc{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+#review .rv-a{display:flex;align-items:center;gap:6px;background:var(--panel2);border-radius:var(--r-ctl);padding:6px 9px;font-size:12.5px;min-width:0}
+#review .rv-a span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
+#review .rv-a b{font:650 15px/1 var(--mono)}
+#review .rv-a .dot{width:10px;height:10px;border-radius:50%;flex:none;border:1px solid #0006}
+#review .rv-a .dot.w{background:#efe9de}
+#review .rv-a .dot.b{background:#2a2826;border-color:#ffffff30}
+#review .rv-graph{height:56px;border-radius:var(--r-ctl);overflow:hidden;cursor:pointer}
+#review .rv-graph svg{width:100%;height:100%;display:block}
+#review .rv-graph .bk{fill:#2a2826}
+#review .rv-graph .wt{fill:#e9e2d4}
+#review .rv-graph .mid{stroke:#8e887f;stroke-width:.6;stroke-dasharray:3 3;vector-effect:non-scaling-stroke}
+#review .rv-graph .cur{stroke:var(--accent);stroke-width:2;vector-effect:non-scaling-stroke}
+#review .rv-nav{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:12.5px;color:var(--muted)}
+#review .rv-coach{display:grid;grid-template-columns:34px 1fr;gap:8px;align-items:start;background:var(--panel2);border-radius:var(--r-ctl);padding:8px 10px}
+#review .rv-coach img{width:34px;height:34px;object-fit:contain}
+#review .rv-coach .say{margin:0;font-size:13px;line-height:1.4;overflow-wrap:anywhere}
+#review .rv-btns{grid-column:1/-1;display:flex;gap:8px}
+#review .rv-btns button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+#review .rv-btns svg{width:15px;height:15px}

@@ -9,7 +9,7 @@ import {ICONS, icon} from './icons.js';
 import {BOTS} from './historic.js';
 import {initPuzzles, puzzleMove, renderPanel as renderPuzzles} from './puzzles.js';
 import {analyze, threat, classify, winPct, fmtEval, CLASSES} from './analysis.js';
-import {initChat, assignPersonas, onGameStart, onMove, onGameOver, onTakeback, say, sysMsg, chatVisible, restoreChat, showTab, activeTab} from './chat.js';
+import {initChat, assignPersonas, onGameStart, onMove, onGameOver, onTakeback, say, sysMsg, chatVisible, restoreChat, resetChat, showTab, activeTab} from './chat.js';
 import {initReview, startReview, renderReviewTab, reviewArrows, checkRetry, reviewReady, openReview} from './review.js';
 
 const VAL = [0, 1, 3, 3, 5, 9, 0];
@@ -371,15 +371,24 @@ function finish(over) {
 
 /* ================= game history ================= */
 function recordGame(over) {
-  if (!relayOK || SHOT || S.replay || S.moves.length < 2 || over.result === '*') return;
+  if (!relayOK || SHOT || S.replay || S.pzBoard || S.moves.length < 2 || over.result === '*') return;
   const w = over.result === '1-0' ? 0 : over.result === '0-1' ? 1 : -1;
   const rec = {id: S.gameKey, date: Date.now(), result: over.result, reason: over.reason, winner: w < 0 ? null : seatName(w), winnerSide: w,
     players: S.seats.map((P, i) => ({name: seatName(i), type: P.type, rating: P.rating || null, engine: P.engine, model: P.model, provider: P.provider,
       level: P.level, elo: P.elo, maia: P.maia, nodes: P.nodes, illegal: P.illegal | 0})),
     variant: S.variant, c960: S.c960, startFen: S.startFen, startName: S.startName, movesRaw: S.moves.slice(), plies: S.moves.length,
     clock: S.clock ? {base: S.clock.base, inc: S.clock.inc, llmFree: !!S.clock.llmFree} : null, delta: S.resultDelta, pgn: pgn(),
-    times: S.times.slice(), clockAt: S.clock ? S.clockAt.slice() : null};
+    times: S.times.slice(), clockAt: S.clock ? S.clockAt.slice() : null, chat: (S.chatLog || []).slice(-60)};
+  S.recorded = S.gameKey;
   api('/api/history', {add: rec}).catch(() => {});
+}
+/* the "gg" lines arrive after the game is recorded: keep the saved chat up to date for a while */
+let endChatT = 0;
+function saveEndChat() {
+  if (!S.over || S.replay || S.recorded !== S.gameKey) return;
+  clearTimeout(endChatT);
+  const id = S.gameKey;
+  endChatT = setTimeout(() => { if (S.gameKey === id) api('/api/history', {update: {id, chat: (S.chatLog || []).slice(-60)}}).catch(() => {}); }, 1200);
 }
 const tcName = c => !c ? '' : c.inc ? `${c.base / 60000} | ${c.inc / 1000}` : `${c.base / 60000} min`;
 function fmtDate(t) {
@@ -440,7 +449,7 @@ function replayGame(g) {
   S.clock = g.clock && S.clockAt.length ? {...g.clock, ms: S.clockAt[S.clockAt.length - 1].slice()} : null;
   S.paused = false; S.say = ''; S.sayBy = -1; S.info = ''; S.arrows = []; S.circles = []; S.anim = null; S.hint = null;
   S.flipped = g.players[1].type === 'human' && g.players[0].type !== 'human';
-  restoreChat([]); clearSel();
+  S.pzBoard = false; restoreChat(Array.isArray(g.chat) ? g.chat : []); clearSel();
   S.viewPly = 0;
   showTab('play'); render(); syncRelay();
   if (S.moves.length >= 2) startReview(S.gameId, g.review);   /* saved with the game: opens instantly */
@@ -449,7 +458,7 @@ function replayGame(g) {
 /* a different player (or model/engine) takes over side i right away, from the current position */
 function applySeat(i) {
   const P = S.seats[i];
-  if (!P || !S.pos || S.setupDirty) { render(); return; }
+  if (!P || !S.pos || S.setupDirty || S.over) { render(); return; }   /* a finished game stays as it was: the choice is for the next one */
   const c = readSeat(i);
   const same = c.type === P.type && (c.type !== 'llm' || (c.model === P.model && c.provider === P.provider)) && (c.type !== 'engine' || c.engine === P.engine);
   if (same) { liveApply(i); return; }
@@ -534,7 +543,7 @@ function startGame() {
     if (P.type === 'llm' && !P.model) { toast(`No model chosen for ${SIDE[i]}: the built-in engine plays instead`); Object.assign(P, {type: 'engine', engine: 'builtin', level: 3}); }
   }
   S.gameId++; cancelThinking();
-  S.pz = null; S.pzRun = null;
+  S.pz = null; S.pzRun = null; S.pzBoard = false;
   S.gameKey = newKey(); S.replay = null; S.setupDirty = false;
   for (const P of seats) rate(P, true);
   const tc = timeControl();
@@ -626,7 +635,7 @@ function play(m, opts = {}) {
   afterMove();
 }
 function canMove(color) {
-  if (S.over || S.viewPly != null || S.thinking || S.inactive) return false;
+  if (S.over || S.viewPly != null || S.thinking || S.inactive || (S.pzBoard && !S.pz)) return false;
   return S.pos.turn === color && S.seats[color].type === 'human';
 }
 function clearSel() { S.sel = -1; S.selFree = false; S.targets = new Map(); S.tgtHide = new Set(); }
@@ -714,7 +723,7 @@ function resign() {
   cancelThinking(); render(); syncRelay();
 }
 async function hint() {
-  if (!S.pos || S.over || S.seats[S.pos.turn].type !== 'human' || $('bHint').disabled) return;
+  if (!S.pos || S.over || S.pzBoard || S.seats[S.pos.turn].type !== 'human' || $('bHint').disabled) return;
   const gid = S.gameId, len = S.moves.length;
   $('bHint').disabled = true; label($('bHint'), 'lightbulb', 'Thinking');
   try {
@@ -822,7 +831,7 @@ function render() {
   label($('bPause'), S.paused ? 'play' : 'pause', S.paused ? 'Resume' : 'Pause');
   const vsComputer = S.seats.some(P => P.type !== 'human') && hc > 0;
   $('bUndo').hidden = vsComputer && !$('allowUndo').checked;
-  $('bHint').hidden = !$('allowHints').checked || !!S.over || !hc || S.viewPly != null || S.seats[S.pos.turn].type !== 'human';
+  $('bHint').hidden = !$('allowHints').checked || !!S.over || !!S.pzBoard || !hc || S.viewPly != null || S.seats[S.pos.turn].type !== 'human';
   chatVisible();
   renderHint();
   renderResult();
@@ -1526,7 +1535,7 @@ function relayState() {
 }
 let syncT = 0;
 function syncRelay() {
-  if (S.pz) return;   /* puzzles never replace the saved game */
+  if (S.pz || S.pzBoard) return;   /* puzzles never replace the saved game */
   if (!relayOK || !S.pos || S.inactive || SHOT) return;
   clearTimeout(syncT);
   syncT = setTimeout(async () => {
@@ -1541,13 +1550,14 @@ async function tryRestore() {
   try {
     const d = await api('/api/state');
     if (d.fmt !== 3 || !d.ts || Date.now() - d.ts > 7 * 24 * 3600e3 || d.over || !Array.isArray(d.movesRaw) || !d.movesRaw.length) return false;
+    if (!Array.isArray(d.seats) || d.seats.some(Q => Q && Q.type === 'puzzle')) return false;   /* an old build could save the puzzle board */
     const variant = d.variant | 0, c960 = !!d.c960, fen = d.startFen || C.START_FEN;
     const pos = new C.Pos(fen, variant, c960), sans = [];
     S.lastOn = new Map();
     for (const m of d.movesRaw) { remember(pos); sans.push(pos.san(m)); pos.make(m); }
     for (const i of [0, 1]) writeSeat(i, d.seats[i]);
     $('variant').value = variant; $('chaos').checked = !!d.chaos; seatVis(0); seatVis(1);
-    S.gameId++; cancelThinking(); cancelPremove();
+    S.gameId++; cancelThinking(); cancelPremove(); S.pzBoard = false;
     S.gameKey = d.gameKey || newKey(); S.replay = null; S.setupDirty = false; S.fb = new Map(); S.an = null; S.explore = null; S.pz = null; S.pzRun = null;
     S.seats = d.seats.map(seatFrom).map(P => rate(P));
     S.clock = d.clock ? {...d.clock, ms: d.clock.ms.slice()} : null;
@@ -1660,6 +1670,7 @@ onSettings.changed = () => {
 initPuzzles({
   board(fen) {
     S.gameId++; cancelThinking(); cancelPremove();
+    S.pzBoard = true; resetChat();   /* the puzzle board: no chat, never saved as your game */
     const pos = new C.Pos(fen, 0, false);
     S.gameKey = newKey(); S.replay = null; S.setupDirty = false; S.explore = null; S.review = null; S.retry = null;
     S.variant = 0; S.c960 = false; S.startFen = fen; S.startName = 'Puzzle'; S.chaos = false; S.clock = null;
@@ -1692,7 +1703,7 @@ async function watchStockfish() {
 }
 
 /* ================= boot ================= */
-Object.assign(hooks, {play, render, afterMove, schedule, sync: () => syncRelay(), history: renderHistory, newTab: () => showMode('hub'), puzzles: () => renderPuzzles(), review: () => renderReviewTab()});
+Object.assign(hooks, {play, render, afterMove, schedule, sync: () => syncRelay(), history: renderHistory, newTab: () => showMode('hub'), puzzles: () => renderPuzzles(), review: () => renderReviewTab(), chatChanged: saveEndChat});
 initReview({goView, curPly, render, showTab, activeTab, tick, clearSel, exploreMove, humanSide, winPly, paintAvatar});
 for (const e of document.querySelectorAll('[data-ic]')) e.insertAdjacentHTML('afterbegin', icon(e.dataset.ic));
 (async () => {

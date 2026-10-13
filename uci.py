@@ -35,9 +35,9 @@ CATALOG = [
                 "win-arm64": ["*windows-arm64*.zip"],
                 "linux-x64": ["*linux-x86-64-universal.tar*", "*linux-x86-64-avx2.tar*", "*linux-x86-64.tar*"],
                 "linux-arm64": ["*linux-arm64*.tar*"],
-                "mac-arm64": ["*macos-m1-apple-silicon*.tar*", "*macos*arm*.tar*"],
-                "mac-x64": ["*macos-x86-64-avx2*.tar*", "*macos-x86-64*.tar*"],
-                "mac": ["*macos*.tar*"]}},
+                "mac-arm64": ["*macos*universal*", "*macos-m1-apple-silicon*", "*macos*apple*", "*macos*arm*", "*macos*aarch64*"],
+                "mac-x64": ["*macos*universal*", "*macos-x86-64-avx2*", "*macos-x86-64*"],
+                "mac": ["*macos*.tar*", "*macos*.zip", "*mac*.tar*", "*mac*.zip"]}},
     {"id": "fairy-stockfish", "name": "Fairy-Stockfish", "kind": "elo", "repo": "fairy-stockfish/Fairy-Stockfish",
      "about": "Stockfish for chess variants: plays King of the Hill and Three-check too.",
      "assets": {"win-x64": ["fairy-stockfish_x86-64-bmi2.exe", "fairy-stockfish_x86-64-modern.exe", "fairy-stockfish_x86-64.exe"],
@@ -108,10 +108,14 @@ def platform_key():
 
 
 def asset_patterns(c):
-    """The download patterns for this computer: any-platform first, then the exact platform (a Mac by chip), then the general one."""
+    """The download patterns for this computer: any-platform ones, or the platform's; a Mac tries the patterns for its chip first,
+    then the general Mac ones (each download is tested, so a build that doesn't run here is skipped)."""
     pk, arm = platform_key(), platform.machine().lower() in ("arm64", "aarch64")
-    keys = ["*", pk] if pk != "mac" else ["*", "mac-arm64" if arm else "mac-x64", "mac"]
-    return next((c["assets"][k] for k in keys if k in c["assets"]), None)
+    if "*" in c["assets"]:
+        return c["assets"]["*"]
+    keys = [pk] if pk != "mac" else ["mac-arm64" if arm else "mac-x64", "mac"]
+    pats = [p for k in keys for p in c["assets"].get(k, [])]
+    return list(dict.fromkeys(pats)) or None
 
 
 class EngineProcess:
@@ -426,7 +430,9 @@ class Engines:
                     self._register(entry)
                     self._job(cid, state="done", step="installed")
                     return
-            raise RuntimeError("no build worked on this machine: " + "; ".join(errors) if errors else "no matching download found")
+            if errors:
+                raise RuntimeError("no build worked on this machine: " + "; ".join(errors))
+            raise RuntimeError("no matching download found among: " + ", ".join(a["name"] for a in assets[:30]))
         except Exception as e:
             self._job(cid, state="error", step=str(e))
 
@@ -592,8 +598,9 @@ class Engines:
                     elif clk:
                         go = "go" + (f" depth {depth}" if depth else "") + clk
                         tmo = max(c["wtime"], c["btime"]) / 1000 + 30
-                    elif depth:   # depth limit, capped so a deep search can't hang the game
-                        go, tmo = f"go depth {depth} movetime 20000", 50
+                    elif depth:   # depth limit, capped so a deep search can't hang the game (or the review's time per position)
+                        cap = max(50, min(20000, int(req.get("movetime") or 20000)))
+                        go, tmo = f"go depth {depth} movetime {cap}", cap / 1000 + 30
                     else:
                         ms = int(req.get("movetime") or 1000)
                         go, tmo = f"go movetime {ms}", ms / 1000 + 30

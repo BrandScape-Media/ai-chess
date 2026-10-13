@@ -23,7 +23,7 @@ def get(path, body=None, timeout=10):
 
 def main():
     exe = sys.argv[1]
-    with tempfile.TemporaryDirectory() as data:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as data:
         p = subprocess.Popen([exe, "--no-browser", "--port", str(PORT), "--data", data, "--exit-when-idle", "0"])
         try:
             t0 = time.time()
@@ -55,8 +55,11 @@ def main():
             print("bestmove", go.get("bestmove"), go.get("info", {}).get("depth"))
             assert go.get("bestmove"), "Stockfish gave no move"
             print("smoke test passed")
-        finally:
-            p.terminate()
+        finally:   # the program and the engines it started
+            if sys.platform == "win32":
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True)
+            else:
+                p.terminate()
             try:
                 p.wait(10)
             except subprocess.TimeoutExpired:

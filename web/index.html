@@ -5,15 +5,15 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AI Chess</title>
 <meta name="description" content="Play chess against your local AI models, chess engines, or let them play each other.">
-<link rel="icon" href="favicon.svg">
-<link rel="preload" href="fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="icon" href="logo-64.png" type="image/png">
+<link rel="preload" href="fonts/SchibstedGrotesk-Variable.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="app.css">
 <style id="pieceCss"></style>
 </head>
 <body>
 <div class="shell">
   <nav class="rail" aria-label="Main">
-    <a class="brand" href="#" data-tab="play"><img src="pieces/cburnett/wN.svg" alt=""><span>AI Chess</span></a>
+    <a class="brand" href="#" data-tab="play"><img src="avatars/logo.webp" alt=""><span>AI Chess</span></a>
     <button class="railbtn" data-tab="play" data-ic="play"><span class="lbl">Play</span></button>
     <button class="railbtn" data-tab="new" data-ic="plus"><span class="lbl">New game</span></button>
     <button class="railbtn" data-tab="history" data-ic="clock-counter-clockwise"><span class="lbl">History</span></button>
@@ -97,7 +97,7 @@
           <h3 class="gh">Time control</h3>
           <div class="tcpick" id="tcPick" role="radiogroup" aria-label="Time control"></div>
           <input type="hidden" id="tc" value="0">
-          <label class="swrow" id="tcAIrow" title="Engines are always on the clock. A slow local model can lose on time in a fast game."><span class="ic" data-ic="hourglass-medium"></span><span class="t">AI models play without a clock<small>for slow local models</small></span><input type="checkbox" class="switch" id="tcLLM"></label>
+          <div class="chips"><label class="chip wide" id="tcAIrow" title="Engines are always on the clock. A slow local model can lose on time in a fast game: switch this on to let AI models think as long as they like."><input type="checkbox" id="tcLLM"><span class="ic" data-ic="hourglass-medium"></span><span>AI models play without a clock</span></label></div>
         </section>
 
         <section class="sect">
@@ -113,17 +113,17 @@
         </section>
 
         <section class="sect">
-          <h3 class="gh">While you play <small>can be changed during the game too</small></h3>
-          <div class="switches" id="assistSw"></div>
+          <h3 class="gh">While you play <small>also from the gear during a game</small></h3>
+          <div class="chips" id="assistSw"></div>
         </section>
 
         <section class="sect">
           <h3 class="gh">House rules</h3>
-          <div class="switches">
-            <label class="swrow" title="A Hint button shows the best move"><span class="ic" data-ic="lightbulb"></span><span class="t">Hints<small>a button that shows the best move</small></span><input type="checkbox" class="switch" id="allowHints" checked></label>
-            <label class="swrow" title="Allow taking moves back against the computer"><span class="ic" data-ic="arrow-counter-clockwise"></span><span class="t">Takebacks<small>undo your last move</small></span><input type="checkbox" class="switch" id="allowUndo" checked></label>
-            <label class="swrow" title="The other side sees your arrows and circles, and is told you don't know it can"><span class="ic" data-ic="eye"></span><span class="t">Opponent can peek at my arrows<small>bluff with your drawings</small></span><input type="checkbox" class="switch" id="peek"></label>
-            <label class="swrow" title="Off: everybody plays by the rules. On: each side has its own switch; illegal moves are played as-is and nobody is told."><span class="ic" data-ic="warning-diamond"></span><span class="t">Allow illegal moves<small>pieces may teleport, come back or appear</small></span><input type="checkbox" class="switch" id="chaos"></label>
+          <div class="chips">
+            <label class="chip" title="A Hint button shows the best move"><input type="checkbox" id="allowHints" checked><span class="ic" data-ic="lightbulb"></span><span>Hints</span></label>
+            <label class="chip" title="Take back your last move against the computer"><input type="checkbox" id="allowUndo" checked><span class="ic" data-ic="arrow-counter-clockwise"></span><span>Takebacks</span></label>
+            <label class="chip wide" title="The other side sees your arrows and circles, and is told you don't know it can. Bluff with your drawings."><input type="checkbox" id="peek"><span class="ic" data-ic="eye"></span><span>Opponent can peek at my arrows</span></label>
+            <label class="chip wide" title="Off: everybody plays by the rules. On: each side gets its own switch; illegal moves are played as they are (pieces may teleport, come back or appear) and nobody is told."><input type="checkbox" id="chaos"><span class="ic" data-ic="warning-diamond"></span><span>Allow illegal moves</span></label>
           </div>
         </section>
         <div class="hint" id="hint"></div>

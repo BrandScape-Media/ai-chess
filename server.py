@@ -396,12 +396,12 @@ class Handler(BaseHTTPRequestHandler):
         f = (WEB / rel).resolve()
         if WEB.resolve() not in f.parents and f != WEB.resolve() or not f.is_file():
             return self.send(404, {"error": "not found"})
-        ctype = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
+        ctype = {".webp": "image/webp", ".woff2": "font/woff2"}.get(f.suffix) or mimetypes.guess_type(f.name)[0] or "application/octet-stream"
         if f.suffix in (".js", ".mjs"):
             ctype = "text/javascript"
         if ctype.startswith("text/") or f.suffix == ".svg":
             ctype += "; charset=utf-8"
-        self.send(200, f.read_bytes(), ctype, cache=f.suffix in (".svg", ".png", ".ico"))
+        self.send(200, f.read_bytes(), ctype, cache=f.suffix in (".svg", ".png", ".ico", ".webp", ".woff2"))
 
     def do_GET(self):
         global pending, polls, last_seen, active_page

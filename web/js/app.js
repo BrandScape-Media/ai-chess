@@ -21,11 +21,11 @@ const BUILTIN_ELO = [400, 800, 1200, 1800, 2200];   /* rough estimates for the b
 const FULL_ELO = {stockfish: 3600, 'fairy-stockfish': 3400, berserk: 3550, koivisto: 3450, obsidian: 3600, caissa: 3550, clover: 3550, halogen: 3450,
   arasan: 3450, weiss: 3050, fabchess: 2900, seer: 3400, velvet: 3300, altair: 3300};
 /* player-card pictures: an icon and a colour per engine */
-const AVATAR = {builtin: ['cpu-fill', '#5d6b7a'], turochamp: ['scroll-fill', '#8a7350'], random: ['dice-five-fill', '#7a5d8a'],
-  stockfish: ['fish-fill', '#3f7f5a'], 'fairy-stockfish': ['magic-wand-fill', '#6a5aa8'], lc0: ['brain-fill', '#b0574a'], maia: ['graduation-cap-fill', '#c08a3a'],
-  berserk: ['flame-fill', '#c0533a'], koivisto: ['tree-fill', '#4f8a4a'], obsidian: ['diamond-fill', '#4a4f6a'], caissa: ['crown-fill', '#a8873a'],
-  clover: ['clover-fill', '#3d8a63'], halogen: ['atom-fill', '#3a7fa8'], arasan: ['castle-turret-fill', '#7a6a55'], weiss: ['snowflake-fill', '#6f8fa8'],
-  fabchess: ['gear-six-fill', '#8a6a3a'], seer: ['eye-fill', '#5a6fa8'], velvet: ['feather-fill', '#8a4a6a'], altair: ['star-four-fill', '#4a6a9a']};
+const AVATAR = {builtin: ['cpu-fill', '#46505a'], turochamp: ['scroll-fill', '#5a4d3c'], random: ['dice-five-fill', '#54465c'],
+  stockfish: ['fish-fill', '#3c5a49'], 'fairy-stockfish': ['magic-wand-fill', '#4f4866'], lc0: ['brain-fill', '#5e3f3a'], maia: ['graduation-cap-fill', '#5e4c33'],
+  berserk: ['flame-fill', '#5e3d33'], koivisto: ['tree-fill', '#435a3e'], obsidian: ['diamond-fill', '#8a8299'], caissa: ['crown-fill', '#5c5235'],
+  clover: ['clover-fill', '#3b5a47'], halogen: ['atom-fill', '#5c5634'], arasan: ['castle-turret-fill', '#5e473b'], weiss: ['snowflake-fill', '#405766'],
+  fabchess: ['gear-six-fill', '#5e4733'], seer: ['eye-fill', '#3a5856'], velvet: ['feather-fill', '#5a3a45'], altair: ['star-four-fill', '#3a4660']};
 const TC_GROUPS = [['Bullet', 'flame-fill', [['60+0', '1 min'], ['60+1', '1 | 1'], ['120+1', '2 | 1']]],
   ['Blitz', 'lightning', [['180+0', '3 min'], ['180+2', '3 | 2'], ['300+0', '5 min']]],
   ['Rapid', 'timer', [['600+0', '10 min'], ['600+5', '10 | 5'], ['900+10', '15 | 10']]],
@@ -170,9 +170,8 @@ function renderMatchup() {
     : c.type === 'agent' ? (S.config.agent || 'Agent') : (c.model ? shortModel(c) : 'AI model');
   const sub = c => c.type === 'engine' ? (c.rating ? 'about ' + c.rating : '') : c.type === 'human' ? (hc === 1 ? 'rated ' + (SET.profile?.rating || 1200) : '') : c.type === 'llm' ? 'rating drawn at the start' : '';
   const card = (c, i) => {
-    const [ic, col] = avatarOf(c);
-    const av = el('span', {class: 'avatar big ' + c.type, html: ICONS[ic] || ''});
-    if (col) { av.style.background = col; av.style.color = '#f3f0ea'; }
+    const av = el('span');
+    paintAvatar(av, c, 'avatar big');
     return el('div', {class: 'mu'}, av, el('div', {class: 'mut'}, el('b', {}, nm(c, i)), el('small', {}, el('i', {class: 'dot ' + (i ? 'b' : 'w')}), (i ? 'Black' : 'White') + (sub(c) ? ' · ' + sub(c) : ''))));
   };
   box.innerHTML = '';
@@ -798,11 +797,8 @@ function renderStrips(vp) {
     if (ct && chip.dataset.t !== ct) { chip.dataset.t = ct; chip.innerHTML = esc(ct) + icon('caret-down'); }
     chip.title = 'Change ' + seatName(c) + '’s strength';
     $('badge' + pfx).textContent = P && P.illegal ? `${P.illegal} illegal` : '';
-    const av = $('av' + pfx), type = P ? P.type : 'human', [ic, col] = avatarOf(P);
-    if (av.dataset.key !== type + ic + col) {
-      av.dataset.key = type + ic + col; av.className = 'avatar ' + type; av.innerHTML = ICONS[ic] || '';
-      av.style.background = col || ''; av.style.color = col ? '#f3f0ea' : '';
-    }
+    const av = $('av' + pfx), type = P ? P.type : 'human';
+    paintAvatar(av, P, 'avatar');
     av.title = {human: 'Human', engine: 'Chess engine', llm: 'AI model', agent: 'Agent'}[type] || '';
     $('name' + pfx).title = P && P.type === 'llm' ? P.model + ' @ ' + P.provider : '';
     $('strip' + pfx).classList.toggle('turn', !S.over && vp.turn === c);
@@ -811,18 +807,22 @@ function renderStrips(vp) {
   fill('Top', S.flipped ? 0 : 1); fill('Bot', S.flipped ? 1 : 0);
 }
 /* [icon, colour] for a player card: each engine has its own picture, AI models a colour from their name */
+/* [icon, tile colour, picture]: every player gets an illustrated avatar (web/avatars, made for this app) on a muted tile */
+const hue = s => { let h = 0; for (const ch of s || '') h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h % 360; };
 function avatarOf(P) {
-  if (!P || P.type === 'human') return ['user-fill', ''];
-  if (P.type === 'agent') return ['sparkle-fill', ''];
-  if (P.type === 'llm') {
-    let h = 0; for (const ch of P.model || '') h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-    return ['robot-fill', `hsl(${h % 360} 32% 42%)`];
-  }
-  const id = P.engine || 'builtin', e = engineEntry(id) || {};
-  const a = AVATAR[id] || AVATAR[e.catalog];
-  if (a) return a;
-  let h = 0; for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return ['cpu-fill', `hsl(${h % 360} 25% 40%)`];
+  if (!P || P.type === 'human') return ['user-fill', '#4a453f', 'avatars/human.webp'];
+  if (P.type === 'agent') return ['sparkle-fill', '#4a453f', 'avatars/logo.webp'];
+  if (P.type === 'llm') return ['robot-fill', `hsl(${hue(P.model)} 18% 34%)`, 'avatars/llm.webp'];
+  const id = P.engine || 'builtin', e = engineEntry(id) || {}, key = AVATAR[id] ? id : AVATAR[e.catalog] ? e.catalog : null;
+  if (key) return [AVATAR[key][0], AVATAR[key][1], `avatars/${key}.webp`];
+  return ['cpu-fill', `hsl(${hue(id)} 16% 34%)`, 'avatars/custom.webp'];
+}
+function paintAvatar(av, P, cls) {
+  const [ic, col, img] = avatarOf(P), key = (P?.type || 'human') + img + col;
+  if (av.dataset.key === key) return;
+  av.dataset.key = key; av.className = cls + ' ' + (P?.type || 'human');
+  av.innerHTML = img ? `<img src="${img}" alt="" draggable="false">` : (ICONS[ic] || '');
+  av.style.background = col || '';
 }
 function renderMoves() {
   const mv = $('moves'); mv.innerHTML = '';
@@ -932,22 +932,23 @@ setInterval(() => {
 
 /* ================= assistance: evaluation bar, move feedback, arrows, engine line ================= */
 const ASSIST = [
-  ['evalbar', 'scales', 'Evaluation bar', 'who is better, according to the engine'],
-  ['feedback', 'chat-teardrop-dots', 'Move feedback', 'best, good, mistake or blunder after your moves'],
-  ['suggest', 'arrow-bend-up-right', 'Suggestion arrows', 'the best move when it is your turn'],
-  ['threat', 'target', 'Threat arrows', 'what your opponent is threatening'],
-  ['lines', 'list-dashes', 'Engine line', 'evaluation and best line under the status'],
+  ['evalbar', 'scales', 'Evaluation bar', 'Who is better, according to the engine'],
+  ['feedback', 'chat-teardrop-dots', 'Move feedback', 'Best, good, mistake or blunder after each of your moves'],
+  ['suggest', 'arrow-bend-up-right', 'Suggestions', 'An arrow for the best move when it is your turn'],
+  ['threat', 'target', 'Threats', 'An arrow for what your opponent threatens (captures and checks)'],
+  ['lines', 'list-dashes', 'Engine line', 'The evaluation and the best line under the status', true],
 ];
-function switchRow(ic, name, sub, checked, onChange, extra = {}) {
-  const inp = el('input', {type: 'checkbox', class: 'switch', ...extra}); inp.checked = !!checked;
+/* an option chip: lit when on, greyed out when off */
+function switchRow(ic, name, tip, checked, onChange, extra = {}, wide = false) {
+  const inp = el('input', {type: 'checkbox', ...extra}); inp.checked = !!checked;
   inp.onchange = () => onChange(inp.checked);
-  return el('label', {class: 'swrow'}, el('span', {class: 'ic', html: ICONS[ic] || ''}), el('span', {class: 't'}, name, sub ? el('small', {}, sub) : null), inp);
+  return el('label', {class: 'chip' + (wide ? ' wide' : ''), title: tip || name}, inp, el('span', {class: 'ic', html: ICONS[ic] || ''}), el('span', {}, name));
 }
-const assistRow = ([k, ic, name, sub]) => switchRow(ic, name, sub, SET.assist[k], v => {
+const assistRow = ([k, ic, name, sub, wide]) => switchRow(ic, name, sub, SET.assist[k], v => {
   SET.assist[k] = v; saveSettings();
   for (const i of document.querySelectorAll(`input[data-assist="${k}"]`)) i.checked = v;
   render();
-}, {'data-assist': k});
+}, {'data-assist': k}, wide);
 function buildAssist() { const box = $('assistSw'); box.innerHTML = ''; for (const a of ASSIST) box.append(assistRow(a)); }
 /* the gear in the move panel: the same options during a game */
 function openOpts() {
@@ -955,11 +956,12 @@ function openOpts() {
   if (!pop.hidden) { pop.hidden = true; return; }
   pop.innerHTML = '';
   pop.append(el('div', {class: 'sph'}, el('b', {}, 'Game options')));
-  const box = el('div', {class: 'switches'});
+  const box = el('div', {class: 'chips'});
   for (const a of ASSIST) box.append(assistRow(a));
-  const mirror = (id, ic, name) => switchRow(ic, name, '', $(id).checked, v => { $(id).checked = v; $(id).dispatchEvent(new Event('change')); });
-  box.append(mirror('allowHints', 'lightbulb', 'Hints'), mirror('allowUndo', 'arrow-counter-clockwise', 'Takebacks'), mirror('peek', 'eye', 'Opponent can peek at my arrows'),
-    switchRow('speaker-high', 'Sound', '', SET.appearance.sound !== false, v => { SET.appearance.sound = v; saveSettings(); }));
+  const mirror = (id, ic, name, wide) => switchRow(ic, name, '', $(id).checked, v => { $(id).checked = v; $(id).dispatchEvent(new Event('change')); }, {}, wide);
+  box.append(mirror('allowHints', 'lightbulb', 'Hints'), mirror('allowUndo', 'arrow-counter-clockwise', 'Takebacks'),
+    switchRow('speaker-high', 'Sound', '', SET.appearance.sound !== false, v => { SET.appearance.sound = v; saveSettings(); }),
+    mirror('peek', 'eye', 'Peek at my arrows'));
   pop.append(box);
   pop.hidden = false;
   const a = $('bOpts').getBoundingClientRect(), w = Math.min(340, innerWidth - 16);

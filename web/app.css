@@ -199,12 +199,20 @@ input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;margin:0}
 .panel button.tcb{padding:8px 4px;background:var(--panel2);font-weight:600;font-variant-numeric:tabular-nums;border:1px solid transparent}
 .panel button.tcb.on{background:var(--accent-soft);border-color:var(--accent);color:#fff}
 
-/* change an engine's strength during a game */
-#live{display:flex;flex-direction:column;gap:6px;padding:10px 12px 0}
-.liverow{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:center}
-.liverow .lv{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12.5px;white-space:nowrap}
-.liverow .lv .ic svg{width:15px;height:15px}
-.liverow select{width:100%;min-width:0;padding:5px 8px;font-size:13px}
+/* engine strength: a chip on the player card, sliders in a popover */
+.lvl{display:inline-flex;align-items:center;gap:3px;border:1px solid var(--line2);background:var(--panel2);color:var(--text);border-radius:5px;padding:1px 5px 1px 7px;font-size:12px;font-weight:550;white-space:nowrap;cursor:pointer;transition:border-color .2s,background .2s}
+.lvl:hover{border-color:var(--accent);background:var(--panel3)}
+.lvl .ic svg{width:11px;height:11px;color:var(--muted)}
+#strengthPop{position:fixed;z-index:var(--z-modal);background:var(--panel);border:1px solid var(--line2);border-radius:var(--r-box);box-shadow:0 18px 50px #000b;padding:12px 14px 10px;display:flex;flex-direction:column;gap:12px;animation:pop .2s var(--ease)}
+#strengthPop .sph{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+#strengthPop .sph b{font-weight:650}
+#strengthPop .est{color:var(--accent-hi);font-size:12.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+#strengthPop .hint{margin:0}
+.spr{display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center}
+.spr .l{color:var(--muted);font-size:12.5px}
+.spr .l small{color:var(--faint)}
+.spr .v{font-weight:600;font-variant-numeric:tabular-nums;font-size:13px}
+.spr input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--accent);margin:0}
 
 /* game history */
 .history{overflow:hidden}

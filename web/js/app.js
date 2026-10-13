@@ -1,7 +1,7 @@
 /* AI Chess: page wiring, setup panel, board, game flow, saved game. GPL-3.0-or-later */
 import * as C from './core.js';
 import {$, api, toast, el, esc, relayOK} from './util.js';
-import {S, SIDE, VARIANT_NAME, hooks, isAI, humanCount, rulesOff, seatName, shortModel, ascii, histText, remember} from './state.js';
+import {S, SIDE, VARIANT_NAME, hooks, isAI, timed, humanCount, rulesOff, seatName, shortModel, ascii, histText, remember} from './state.js';
 import {applyAppearance, setPiece, preloadCanvasPieces, isImageSet, glyph} from './theme.js';
 import {SET, loadSettings, saveSettings, openSettings, refreshEngines, onSettings} from './settings.js';
 import {askEngine, askLLM, cancelThinking, resolveIllegal, arrowGeom, sqXY, ARROW_COL, bestMoveHint} from './players.js';
@@ -30,6 +30,9 @@ const TC_GROUPS = [['Bullet', 'flame-fill', [['60+0', '1 min'], ['60+1', '1 | 1'
   ['Rapid', 'timer', [['600+0', '10 min'], ['600+5', '10 | 5'], ['900+10', '15 | 10']]],
   ['Other', 'clock', [['1800+0', '30 min'], ['0', 'No clock']]]];
 const LC0_ELO = {1: 1900, 10: 2300, 100: 2700, 800: 3000, 5000: 3250, 30000: 3400};
+const DEPTH_OPTS = [0, 1, 2, 3, 5, 8, 10, 12, 15, 18, 20, 25, 30];
+/* very rough strength of a depth-limited engine */
+const depthElo = d => 900 + d * 125;
 const NODES = [[1, '1 node (pure instinct)'], [10, '10 nodes'], [100, '100 nodes'], [800, '800 nodes'], [5000, '5000 nodes'], [30000, '30k nodes']];
 
 /* ================= setup panel ================= */
@@ -44,7 +47,8 @@ function seatHTML(i) {
     <label data-k="elo">Strength</label><select id="elo${i}" data-k="elo"></select>
     <label data-k="maia">Rating</label><select id="maia${i}" data-k="maia"></select>
     <label data-k="nodes">Search</label><select id="nodes${i}" data-k="nodes"></select>
-    <label data-k="time elo">Think</label><select id="movetime${i}" data-k="time elo"></select>
+    <label data-k="time elo">Depth</label><select id="depth${i}" data-k="time elo" title="How many moves ahead the engine may look. Lower is weaker."></select>
+    <label data-k="time elo">Think</label><select id="movetime${i}" data-k="time elo" title="Time per move when there is no clock"></select>
     <label data-t="llm">Provider</label><select id="prov${i}" data-t="llm"></select>
     <label data-t="llm">Model</label><span data-t="llm" style="display:flex;gap:6px;min-width:0"><input id="model${i}" type="text" list="models${i}" spellcheck="false" placeholder="model name" style="flex:1;min-width:0"><datalist id="models${i}"></datalist><button id="reload${i}" class="ib" title="Reload the model list">${icon('arrow-counter-clockwise')}</button></span>
     <label data-t="llm">Thinking</label><select id="think${i}" data-t="llm"><option value="none">Off (fast)</option><option value="low">Low</option><option value="medium">Medium</option><option value="xhigh">Max</option></select>
@@ -59,6 +63,11 @@ function fillSelect(sel, items, keep) {
   for (const [v, t] of items) sel.append(el('option', {value: v}, t));
   if (keep != null && items.some(([v]) => String(v) === String(keep))) sel.value = keep;
 }
+/* select an option, adding it first when the menu does not have that value (sliders can pick any value) */
+function setOpt(sel, v, text) {
+  if (![...sel.options].some(o => o.value === String(v))) sel.append(el('option', {value: v}, text));
+  sel.value = String(v);
+}
 function engineEntry(id) { return id === 'builtin' ? {kind: 'builtin'} : BOTS[id] ? {kind: 'bot'} : (S.engineList || []).find(e => e.id === id); }
 function engineMenus(i, want) {
   const sel = $('engine' + i), keep = (want && want.engine) || sel.value || sel.dataset.want || 'builtin';
@@ -70,7 +79,9 @@ function engineMenus(i, want) {
   sel.value = [...sel.options].some(o => o.value === keep) && keep !== '__more' ? keep : 'builtin';
   const e = engineEntry($('engine' + i).value) || {kind: 'builtin'};
   const elo = e.elo || [1320, 3190];
-  fillSelect($('elo' + i), ELO_STEPS.filter(v => !v || (v >= elo[0] && v <= elo[1])).map(v => [v, v ? v + ' Elo' : 'Full strength']), want ? want.elo || 0 : ($('elo' + i).value || 0));
+  const wantElo = want ? want.elo || 0 : +($('elo' + i).value || 0);
+  fillSelect($('elo' + i), ELO_STEPS.filter(v => !v || (v >= elo[0] && v <= elo[1])).map(v => [v, v ? v + ' Elo' : 'Full strength']), wantElo);
+  if (wantElo >= elo[0] && wantElo <= elo[1]) setOpt($('elo' + i), wantElo, wantElo + ' Elo');
   fillSelect($('maia' + i), Object.keys(e.weights || {}).filter(k => /^\d+$/.test(k)).map(k => [k, k]), want ? want.maia || 1500 : ($('maia' + i).value || 1500));
 }
 function providerMenu(i, want) {
@@ -91,6 +102,7 @@ function buildSeat(i) {
   fillSelect($('level' + i), C.LEVELS.map((l, k) => [k, `${k + 1} · ${l.name} (about ${BUILTIN_ELO[k]})`]), 3);
   fillSelect($('movetime' + i), TIMES, 1000);
   fillSelect($('nodes' + i), NODES, 800);
+  fillSelect($('depth' + i), DEPTH_OPTS.map(d => [d, d ? 'depth ' + d : 'No limit']), 0);
   if (!relayOK) $('type' + i).querySelector('option[value="llm"]').disabled = true;
   $('type' + i).onchange = async () => {
     const t = $('type' + i).value;
@@ -103,7 +115,7 @@ function buildSeat(i) {
     $('engine' + i).dataset.want = $('engine' + i).value;
     engineMenus(i); seatVis(i); saveSetup(); applySeat(i);
   };
-  for (const k of ['level', 'elo', 'maia', 'nodes', 'movetime', 'think', 'sees', 'img', 'hint', 'free']) $(k + i).onchange = () => { saveSetup(); liveApply(i, k); };
+  for (const k of ['level', 'elo', 'maia', 'nodes', 'depth', 'movetime', 'think', 'sees', 'img', 'hint', 'free']) $(k + i).onchange = () => { saveSetup(); liveApply(i, k); };
   $('prov' + i).onchange = async () => {
     if ($('prov' + i).value === '__custom') { $('prov' + i).value = $('prov' + i).dataset.want || 'lmstudio'; openSettings('ai'); return; }
     $('prov' + i).dataset.want = $('prov' + i).value;
@@ -120,7 +132,7 @@ function seatVis(i) {
 }
 function readSeat(i) {
   return {type: $('type' + i).value, engine: $('engine' + i).value || 'builtin', level: +$('level' + i).value, elo: +$('elo' + i).value || 0, maia: $('maia' + i).value || '1500',
-    nodes: +$('nodes' + i).value, movetime: +$('movetime' + i).value, provider: $('prov' + i).value, model: $('model' + i).value.trim(),
+    nodes: +$('nodes' + i).value, depth: +$('depth' + i).value || 0, movetime: +$('movetime' + i).value, provider: $('prov' + i).value, model: $('model' + i).value.trim(),
     think: $('think' + i).value, sees: $('sees' + i).value, img: $('img' + i).value, hint: $('hint' + i).checked, free: $('free' + i).checked};
 }
 function writeSeat(i, c = {}) {
@@ -131,6 +143,7 @@ function writeSeat(i, c = {}) {
   $('engine' + i).dataset.want = c.engine || 'builtin';
   engineMenus(i, {engine: c.engine || 'builtin', elo: c.elo || 0, maia: c.maia || 1500});
   $('level' + i).value = c.level ?? 3; $('nodes' + i).value = c.nodes || 800; $('movetime' + i).value = c.movetime || 1000;
+  setOpt($('depth' + i), c.depth || 0, 'depth ' + c.depth);
   $('prov' + i).dataset.want = c.provider || 'lmstudio'; providerMenu(i, c.provider || 'lmstudio');
   $('model' + i).value = c.model || ''; pendingModel[i] = c.model || '';
   $('think' + i).value = c.think || 'low'; $('sees' + i).value = c.sees || 'board'; $('img' + i).value = c.img || 'last';
@@ -169,6 +182,7 @@ function rate(P, reroll) {
     const e = P.engine && P.engine !== 'builtin' ? engineEntry(P.engine) || {} : null;
     P.rating = !e ? BUILTIN_ELO[P.level] ?? 1500 : BOTS[P.engine] ? BOTS[P.engine].elo : e.kind === 'maia' ? +P.maia || 1500 : e.kind === 'nodes' ? LC0_ELO[P.nodes] || 2800
       : e.kind === 'elo' && P.elo ? P.elo : FULL_ELO[e.catalog || e.id] || 3000;
+    if (e && (e.kind === 'elo' || e.kind === 'time') && P.depth) P.rating = Math.min(P.rating, depthElo(P.depth));
   } else if (reroll || !P.rating) P.rating = 400 + Math.round(Math.random() * 130) * 10;
   return P;
 }
@@ -286,14 +300,14 @@ function liveApply(i, k) {
   const c = readSeat(i);
   if (c.type !== P.type) return;
   if (k === 'sees' && P.sees !== c.sees) { P.convo = []; P.lastPly = -1; }
-  for (const key of ['level', 'elo', 'maia', 'nodes', 'movetime', 'think', 'sees', 'img', 'hint', 'free']) P[key] = c[key];
+  for (const key of ['level', 'elo', 'maia', 'nodes', 'depth', 'movetime', 'think', 'sees', 'img', 'hint', 'free']) P[key] = c[key];
   rate(P);
   render(); syncRelay();
 }
 function saveSetup() {
   try {
     localStorage.setItem('aichess.setup', JSON.stringify({seats: [readSeat(0), readSeat(1)], variant: $('variant').value, start: $('start').value,
-      fen: $('fenIn').value, peek: $('peek').checked, rnd: $('rnd').checked, chaos: $('chaos').checked, tc: $('tc').value, tcAI: $('tcAI').checked, hints: $('allowHints').checked, undo: $('allowUndo').checked}));
+      fen: $('fenIn').value, peek: $('peek').checked, rnd: $('rnd').checked, chaos: $('chaos').checked, tc: $('tc').value, tcLLM: $('tcLLM').checked, hints: $('allowHints').checked, undo: $('allowUndo').checked}));
   } catch (e) {}
 }
 function loadSetup() {
@@ -306,7 +320,7 @@ function loadSetup() {
   if (j.fen) $('fenIn').value = j.fen;
   $('peek').checked = !!j.peek; $('rnd').checked = !!j.rnd; $('chaos').checked = !!j.chaos;
   $('allowHints').checked = j.hints !== false; $('allowUndo').checked = j.undo !== false;
-  setTc(j.tc ?? '600+0'); $('tcAI').checked = !!j.tcAI;
+  setTc(j.tc ?? '600+0'); $('tcLLM').checked = !!j.tcLLM;
   startVis(); seatVis(0); seatVis(1);
 }
 /* time control buttons, grouped like on chess sites */
@@ -351,7 +365,7 @@ function startGame() {
   S.gameKey = newKey(); S.replay = null;
   for (const P of seats) rate(P, true);
   const tc = timeControl();
-  S.clock = tc ? {...tc, ms: [tc.base, tc.base], ai: $('tcAI').checked, last: performance.now()} : null;
+  S.clock = tc ? {...tc, ms: [tc.base, tc.base], llmFree: $('tcLLM').checked, last: performance.now()} : null;
   S.resultClosed = false; S.resultDelta = null;
   S.seats = seats; S.variant = variant; S.c960 = c960; S.startFen = fen; S.startName = name; S.chaos = $('chaos').checked;
   S.pos = new C.Pos(fen, variant, c960); S.startPly = (S.pos.full - 1) * 2 + S.pos.turn;
@@ -378,24 +392,36 @@ function canPremove() {
   const me = humanSide();
   return me >= 0 && SET.appearance.premoves !== false && !S.over && S.viewPly == null && !S.inactive && S.pos.turn !== me;
 }
-function cancelPremove() { const had = S.premove || S.preSel >= 0; S.premove = null; S.preSel = -1; return had; }
+/* several premoves can be queued; one is played each time your turn comes. If one fails, the rest are dropped. */
+function cancelPremove() { const had = S.premoves.length || S.preSel >= 0; S.premoves = []; S.preSel = -1; return had; }
+/* the board as it will look after the queued premoves (what you see and pick pieces from while premoving) */
+function preBoard() {
+  const b = S.pos.b.slice();
+  for (const {f, t} of S.premoves) {
+    const p = b[f]; if (!p) continue;
+    const ks = (p & 7) === C.KING && Math.abs((t & 7) - (f & 7)) === 2 && (t >> 4) === (f >> 4);
+    b[f] = 0; b[t] = p;
+    if (ks) { const r = t > f ? (f & 0x70) + 7 : (f & 0x70), rd = t > f ? t - 1 : t + 1; if (b[r] && (b[r] & 7) === C.ROOK) { b[rd] = b[r]; b[r] = 0; } }
+  }
+  return b;
+}
+function addPremove(f, t) { if (S.premoves.length < 20) S.premoves.push({f, t}); S.preSel = -1; }
 function runPremove() {
-  const pm = S.premove;
-  if (!pm) return;
+  if (!S.premoves.length) return;
   if (S.over) { cancelPremove(); return; }
   const me = S.pos.turn;
   if (S.seats[me].type !== 'human') return;
-  S.premove = null;
+  const pm = S.premoves.shift();
   const gid = S.gameId, len = S.moves.length;
   setTimeout(() => {
     if (gid !== S.gameId || len !== S.moves.length || S.over || S.pos.turn !== me) return;
     const pc = S.pos.b[pm.f];
-    if (!pc || (pc >> 3) !== me) { render(); return; }   /* the piece was captured */
+    if (!pc || (pc >> 3) !== me) { cancelPremove(); render(); return; }   /* the piece was captured */
     select(pm.f);
     const ms = (S.targets.get(pm.t) || []).filter(m => (m & 127) === pm.f);
     if (ms.length) play(ms.find(m => ((m >> 14) & 7) === C.QUEEN) || ms[0]);
     else if (S.selFree && pm.t !== pm.f) playFree(pm.f, pm.t);
-    else { clearSel(); render(); }
+    else { cancelPremove(); clearSel(); render(); toast('Premove was not legal any more'); }
   }, 40);
 }
 function schedule() {
@@ -539,13 +565,14 @@ function render() {
   const lastM = curPly() > 0 ? S.moves[curPly() - 1] : 0;
   const kingChk = vp.inCheck() ? vp.ksq[vp.turn] : -1;
   const bd = $('board'); bd.innerHTML = '';
-  const pieceEls = new Map();
+  const pieceEls = new Map(), queued = live && S.premoves.length;
+  const B = queued ? preBoard() : vp.b, preSq = new Set(queued ? S.premoves.flatMap(m => [m.f, m.t]) : []);
   for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) {
-    const r = S.flipped ? i : 7 - i, f = S.flipped ? 7 - j : j, sq = r * 16 + f, p = vp.b[sq];
+    const r = S.flipped ? i : 7 - i, f = S.flipped ? 7 - j : j, sq = r * 16 + f, p = B[sq];
     const tgt = live && S.targets.has(sq) && !S.tgtHide.has(sq);
     const e = el('div', {class: 'sq' + (((r + f) & 1) ? '' : ' d') + (S.variant === C.V_KOTH && C.isHill(sq) ? ' hill' : '') + (lastM && (sq === (lastM & 127) || sq === ((lastM >> 7) & 127)) ? ' last' : '')
       + (live && S.sel === sq ? ' sel' : '') + (sq === kingChk ? ' chk' : '')
-      + (live && S.premove && (sq === S.premove.f || sq === S.premove.t) ? ' pre' : '') + (live && S.preSel === sq ? ' presel' : '') + (tgt ? (' tgt' + ((p || ((S.targets.get(sq)[0] >> 17) & 1)) ? ' cap' : '')) : '')});
+      + (preSq.has(sq) ? ' pre' : '') + (live && S.preSel === sq ? ' presel' : '') + (tgt ? (' tgt' + ((p || ((S.targets.get(sq)[0] >> 17) & 1)) ? ' cap' : '')) : '')});
     e.dataset.sq = sq;
     if (j === 0) e.append(el('span', {class: 'co r'}, r + 1));
     if (i === 7) e.append(el('span', {class: 'co f'}, C.FILES[f]));
@@ -571,7 +598,6 @@ function render() {
   $('bUndo').hidden = vsComputer && !$('allowUndo').checked;
   $('bHint').hidden = !$('allowHints').checked || !!S.over || !hc || S.viewPly != null || S.seats[S.pos.turn].type !== 'human';
   chatVisible();
-  renderLive();
   renderHint();
   renderResult();
   drawClocks();
@@ -589,34 +615,65 @@ function animate(m, els) {
   if ((m >> 17) & C.FL_CASTLE) { const base = from & 0x70, ks = to > from; slide(from, base + (ks ? 6 : 2)); slide(to, base + (ks ? 5 : 3)); }
   else slide(from, to);
 }
-/* change an engine's strength in the middle of a game (same menus as the setup panel) */
-const STRENGTH_SEL = {builtin: 'level', elo: 'elo', maia: 'maia', nodes: 'nodes', time: 'movetime'};
-function renderLive() {
-  const box = $('live'), rows = [];
-  for (const i of [0, 1]) {
-    const P = S.seats[i];
-    if (!P || P.type !== 'engine') continue;
-    const kind = engineEntry(P.engine || 'builtin')?.kind || 'builtin', k = STRENGTH_SEL[kind];
-    if (k) rows.push([i, k]);
-  }
-  const key = rows.map(([i, k]) => i + k + S.seats[i].engine + $(k + i).options.length).join('|') + (S.over ? 'x' : '');
-  if (box.dataset.key === key) {   /* just keep the values current */
-    for (const s of box.querySelectorAll('select')) s.value = $(s.dataset.src).value;
-    return;
-  }
-  box.dataset.key = key; box.innerHTML = '';
-  box.hidden = !rows.length || !!S.over;
-  for (const [i, k] of rows) {
-    const src = $(k + i), s = el('select', {'data-src': k + i, 'aria-label': 'Strength'});
-    for (const o of src.options) s.append(el('option', {value: o.value}, o.textContent));
-    s.value = src.value;
-    s.onchange = () => {
-      src.value = s.value; saveSetup(); liveApply(i, k);
-      toast(`${seatName(i)} now plays at about ${S.seats[i].rating || '?'}` + (k === 'movetime' ? '' : ' Elo'));
-    };
-    box.append(el('label', {class: 'liverow'}, el('span', {class: 'lv'}, el('span', {class: 'ic', html: ICONS['sliders-horizontal']}), (humanCount() === 1 ? 'Opponent' : SIDE[i]) + (k === 'movetime' ? ' think time' : ' strength')), s));
-  }
+/* the strength chip on an engine's player card: click it for sliders that change the engine on the fly */
+const engKind = P => engineEntry(P.engine || 'builtin')?.kind || 'builtin';
+function strengthLabel(P) {
+  const k = engKind(P);
+  if (k === 'builtin') return C.LEVELS[P.level ?? 3].name;
+  if (k === 'elo') return (P.elo ? P.elo + ' Elo' : 'Full') + (P.depth ? ' · depth ' + P.depth : '');
+  if (k === 'time') return P.depth ? 'depth ' + P.depth : 'Full';
+  if (k === 'maia') return 'Maia ' + (P.maia || 1500);
+  if (k === 'nodes') return (P.nodes || 800) + ' nodes';
+  return '';
 }
+function strengthSliders(P) {
+  const k = engKind(P), e = engineEntry(P.engine) || {}, out = [];
+  const depth = {key: 'depth', label: 'Depth', hint: 'moves it looks ahead', values: [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 18, 20, 25, 30, 0], fmt: v => v ? String(v) : 'No limit'};
+  const think = {key: 'movetime', label: 'Think time', hint: 'per move (no clock)', values: TIMES.map(t => t[0]), fmt: v => (TIMES.find(t => t[0] === v) || [0, v + ' ms'])[1]};
+  if (k === 'builtin') out.push({key: 'level', label: 'Level', values: [0, 1, 2, 3, 4], fmt: v => `${v + 1} · ${C.LEVELS[v].name} (about ${BUILTIN_ELO[v]})`});
+  if (k === 'elo') {
+    const [lo, hi] = e.elo || [1320, 3190], vals = [];
+    for (let v = Math.ceil(lo / 50) * 50; v <= hi; v += 50) vals.push(v);
+    out.push({key: 'elo', label: 'Strength', values: [...vals, 0], fmt: v => v ? v + ' Elo' : 'Full strength'});
+  }
+  if (k === 'elo' || k === 'time') { out.push(depth); if (!S.clock) out.push(think); }
+  if (k === 'maia') out.push({key: 'maia', label: 'Rating', values: Object.keys(e.weights || {}).filter(x => /^\d+$/.test(x)).map(Number), fmt: v => String(v)});
+  if (k === 'nodes') out.push({key: 'nodes', label: 'Search', values: NODES.map(n => n[0]), fmt: v => (NODES.find(n => n[0] === v) || [0, v + ' nodes'])[1]});
+  return out;
+}
+function openStrength(i, anchor) {
+  const pop = $('strengthPop'), P = S.seats[i];
+  if (!P || P.type !== 'engine' || S.replay) return;
+  if (!pop.hidden && pop.dataset.side === String(i)) { pop.hidden = true; return; }
+  pop.dataset.side = i; pop.innerHTML = '';
+  const est = el('span', {class: 'est'});
+  const showEst = () => { est.textContent = P.rating ? `about ${P.rating} Elo` : ''; };
+  pop.append(el('div', {class: 'sph'}, el('b', {}, seatName(i)), est));
+  const rows = strengthSliders(P);
+  if (!rows.length) pop.append(el('p', {class: 'hint'}, 'This one has a fixed strength.'));
+  for (const r of rows) {
+    const cur = r.key === 'maia' ? +(P.maia || 1500) : r.key === 'level' ? (P.level ?? 3) : (P[r.key] ?? 0);
+    let idx = r.values.indexOf(cur); if (idx < 0) idx = r.key === 'depth' || r.key === 'elo' ? r.values.length - 1 : 0;
+    const val = el('span', {class: 'v'}, r.fmt(r.values[idx]));
+    const range = el('input', {type: 'range', min: 0, max: r.values.length - 1, step: 1, value: idx, 'aria-label': r.label});
+    range.oninput = () => { val.textContent = r.fmt(r.values[+range.value]); };
+    range.onchange = () => {
+      const v = r.values[+range.value];
+      setOpt($(r.key + i), v, r.fmt(v)); saveSetup(); liveApply(i, r.key); showEst();
+    };
+    pop.append(el('label', {class: 'spr'}, el('span', {class: 'l'}, r.label, r.hint ? el('small', {}, ' ' + r.hint) : null), val, range));
+  }
+  pop.append(el('p', {class: 'hint'}, 'Takes effect from its next move.'));
+  showEst();
+  pop.hidden = false;
+  const a = anchor.getBoundingClientRect(), w = Math.min(300, innerWidth - 16);
+  pop.style.width = w + 'px';
+  pop.style.left = Math.max(8, Math.min(a.left, innerWidth - w - 8)) + 'px';
+  const below = a.bottom + 6, h = pop.offsetHeight;
+  pop.style.top = (below + h < innerHeight - 8 ? below : Math.max(8, a.top - h - 6)) + 'px';
+}
+for (const pfx of ['Top', 'Bot']) $('lvl' + pfx).onclick = e => { e.stopPropagation(); openStrength(+$('lvl' + pfx).dataset.side, $('lvl' + pfx)); };
+document.addEventListener('pointerdown', e => { const pop = $('strengthPop'); if (!pop.hidden && !pop.contains(e.target) && !e.target.closest('.lvl')) pop.hidden = true; });
 function renderHint() {
   const L = [], types = S.seats.map(P => P?.type);
   const ci = types.indexOf('agent');
@@ -644,8 +701,13 @@ function renderStrips(vp) {
     if (S.variant === C.V_3CHECK) extra.push('checks ' + vp.checks[c] + '/3');
     $('adv' + pfx).textContent = extra.join(' · ');
     const P = S.seats[c];
-    $('name' + pfx).textContent = seatName(c);
+    const builtinEng = P && P.type === 'engine' && (!P.engine || P.engine === 'builtin');
+    $('name' + pfx).textContent = builtinEng ? 'Engine' : seatName(c);
     $('rating' + pfx).textContent = P && P.rating ? `(${P.rating})` : '';
+    const chip = $('lvl' + pfx), ct = P && P.type === 'engine' && !S.replay ? strengthLabel(P) : '';
+    chip.hidden = !ct; chip.dataset.side = c;
+    if (ct && chip.dataset.t !== ct) { chip.dataset.t = ct; chip.innerHTML = esc(ct) + icon('caret-down'); }
+    chip.title = 'Change ' + seatName(c) + '’s strength';
     $('badge' + pfx).textContent = P && P.illegal ? `${P.illegal} illegal` : '';
     const av = $('av' + pfx), type = P ? P.type : 'human', [ic, col] = avatarOf(P);
     if (av.dataset.key !== type + ic + col) {
@@ -728,7 +790,6 @@ setInterval(() => {   /* a visible clock while a model works (a cold model load 
 
 /* ================= clocks ================= */
 function timeControl() { const v = $('tc').value; if (!v || v === '0') return null; const [b, inc] = v.split('+').map(Number); return {base: b * 1000, inc: (inc || 0) * 1000}; }
-const timed = side => !!S.clock && !!S.seats[side] && (S.seats[side].type === 'human' || S.clock.ai);
 function fmtClock(ms) {
   ms = Math.max(0, ms);
   const t = Math.floor(ms / 1000), h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, s = t % 60;
@@ -846,12 +907,12 @@ boardEl.addEventListener('pointerdown', e => {
   if (S.viewPly != null) { goView(null); return; }
   const p = S.pos.b[sq];
   if (canPremove()) {
-    const me = humanSide(), mine = p && (p >> 3) === me;
-    if (S.preSel >= 0 && !mine && sq !== S.preSel) { S.premove = {f: S.preSel, t: sq}; S.preSel = -1; render(); return; }
+    const me = humanSide(), q = preBoard()[sq], mine = q && (q >> 3) === me;
+    if (S.preSel >= 0 && !mine && sq !== S.preSel) { addPremove(S.preSel, sq); render(); return; }
     if (mine) {
       const was = S.preSel === sq;
-      S.premove = null; S.preSel = was ? -1 : sq; render();
-      drag = {sq, pre: true, was, moved: false, x: e.clientX, y: e.clientY, ghost: null, pe: boardEl.querySelector('.pc[data-sq="' + sq + '"]')};
+      S.preSel = was ? -1 : sq; render();
+      drag = {sq, pre: true, piece: q, was, moved: false, x: e.clientX, y: e.clientY, ghost: null, pe: boardEl.querySelector('.pc[data-sq="' + sq + '"]')};
       e.preventDefault(); return;
     }
     cancelPremove(); clearShapes(); render(); return;
@@ -870,7 +931,7 @@ window.addEventListener('pointermove', e => {
   if (!drag) return;
   if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 5) {
     drag.moved = true;
-    const g = setPiece(el('div'), S.pos.b[drag.sq], 'ghost'); document.body.append(g); drag.ghost = g;
+    const g = setPiece(el('div'), drag.piece || S.pos.b[drag.sq], 'ghost'); document.body.append(g); drag.ghost = g;
     if (drag.pe) drag.pe.classList.add('lift');
   }
   if (drag.ghost) { drag.ghost.style.left = e.clientX + 'px'; drag.ghost.style.top = e.clientY + 'px'; }
@@ -887,7 +948,7 @@ window.addEventListener('pointerup', e => {
   if (d.ghost) d.ghost.remove();
   if (d.pre) {
     const t = d.moved ? sqAt(e.clientX, e.clientY) : -1;
-    if (t >= 0 && t !== d.sq && canPremove()) { S.premove = {f: d.sq, t}; S.preSel = -1; }
+    if (t >= 0 && t !== d.sq && canPremove()) addPremove(d.sq, t);
     render(); return;
   }
   if (d.moved) {
@@ -912,7 +973,7 @@ function relayState() {
     rulesFree: P.type === 'agent' ? rulesOff(P) : false, paused: S.paused,
     over: S.over, fullmove: p.full, inCheck: p.inCheck(), checks: S.variant === C.V_3CHECK ? p.checks.slice() : undefined,
     moves: S.moves.map(m => C.uci(m, S.c960)), movesRaw: S.moves.slice(), san: S.sans, lastSan: S.sans.length ? S.sans[S.sans.length - 1] : null,
-    legal: lu, board: ascii(p), clock: S.clock ? {base: S.clock.base, inc: S.clock.inc, ms: S.clock.ms, ai: S.clock.ai} : null,
+    legal: lu, board: ascii(p), clock: S.clock ? {base: S.clock.base, inc: S.clock.inc, ms: S.clock.ms, llmFree: !!S.clock.llmFree} : null,
     chatLog: (S.chatLog || []).slice(-100), shapes: {arrows: S.arrows, circles: S.circles},
   };
   if (S.config.agent) {
@@ -1004,7 +1065,7 @@ async function copy(txt, what) {
   catch (e) { window.prompt('Copy ' + what + ':', txt); }
 }
 $('bNew').onclick = () => { startGame(); showTab('play'); };
-$('tcAI').onchange = saveSetup;
+$('tcLLM').onchange = saveSetup;
 $('bSwap').onclick = () => { swapSeats(); saveSetup(); applySeat(0); applySeat(1); };
 $('bUndo').onclick = undo;
 $('bFlip').onclick = () => { S.flipped = !S.flipped; render(); };
@@ -1032,7 +1093,7 @@ window.addEventListener('keydown', e => {
   else if (e.key === 'f' || e.key === 'F') { S.flipped = !S.flipped; render(); }
   else if (e.key === 'p' || e.key === 'P') { if (!$('bPause').hidden) togglePause(); }
   else if (e.key === 'h' || e.key === 'H') { if (!$('bHint').hidden) hint(); }
-  else if (e.key === 'Escape') { clearSel(); cancelPremove(); $('promo').hidden = true; S.arrows = []; S.circles = []; shapesChanged(); render(); }
+  else if (e.key === 'Escape') { clearSel(); cancelPremove(); $('strengthPop').hidden = true; $('promo').hidden = true; S.arrows = []; S.circles = []; shapesChanged(); render(); }
 });
 onSettings.changed = () => {
   S.chatOn = SET.chat.enabled !== false;

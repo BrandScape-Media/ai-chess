@@ -68,7 +68,7 @@ Two historical opponents are built in, no download needed: **Turochamp**, the pa
 
 Any other UCI engine (Komodo, Ethereal, …) can be added with **Add engine → Browse…**. AlphaZero and Deep Blue were never released; Leela is AlphaZero's open-source counterpart, and Stockfish at about 2850 Elo plays at Deep Blue's level.
 
-You can change an engine's strength in the middle of a game, right above the move list.
+You can change an engine's strength in the middle of a game: click its level next to its name for sliders (Elo, search depth, rating, …).
 
 ![Engines](docs/engines.png)
 
@@ -84,8 +84,8 @@ Like the chat on chess.com: talk to the model while you play. Every computer opp
 
 * **Variants:** Chess960 (Fischer Random), King of the Hill, Three-check, Transcendental chess, any position from a FEN. The rules are explained to the models in their prompt.
 * **Arrows and circles** like on chess.com (right-click drag; Shift/Alt/Ctrl for colors), plus a sneaky option: **let the opponent peek at your arrows**. Plan honestly, or bait it.
-* **Clocks:** bullet (1, 1|1, 2|1), blitz (3, 3|2, 5), rapid (10, 10|5, 15|10) or 30 minutes; computer players can be timed too (watch an LLM flag).
-* **Premoves:** queue your next move while the opponent thinks. In chaos mode they are played even when they've become illegal.
+* **Clocks:** bullet (1, 1|1, 2|1), blitz (3, 3|2, 5), rapid (10, 10|5, 15|10) or 30 minutes. Everybody plays on the clock: engines manage their time like in a real game, and AI models can lose on time (or play untimed if you prefer).
+* **Premoves:** queue one or several moves while the opponent thinks. In chaos mode they are played even when they've become illegal.
 * **Game history** with the winner of every game, replay and PGN.
 * **Ratings:** engines show realistic Elo estimates, every AI model gets a random rating for the game, and your own rating goes up and down as you win and lose.
 * **Hints** (best move from Stockfish or the built-in engine) and **takebacks**, each can be switched off.

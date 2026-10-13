@@ -11,7 +11,7 @@ export const S = {
   flipped: false, pos: null, moves: [], sans: [], lastMove: 0, over: null, gameId: 0,
   viewPly: null, sel: -1, selFree: false, targets: new Map(), tgtHide: new Set(), thinking: false, info: '', say: '', sayBy: -1,
   eng: null, llmCtl: null, llmT0: 0, lastOn: new Map(), arrows: [], circles: [], paused: false, peek: false, inactive: false,
-  premove: null, preSel: -1,
+  premoves: [], preSel: -1,
   config: {agent: null},
 };
 
@@ -19,6 +19,8 @@ export const S = {
 export const hooks = {play: null, render: null, afterMove: null, schedule: null};
 
 export const isAI = P => P && (P.type === 'engine' || P.type === 'llm');
+/* who plays on the clock: everybody, except AI models when "AI models play without a clock" is ticked */
+export const timed = side => !!S.clock && !!S.seats[side] && !(S.clock.llmFree && (S.seats[side].type === 'llm' || S.seats[side].type === 'agent'));
 export const humanCount = () => S.seats.filter(P => P && P.type === 'human').length;
 /* a side really plays without rules only when chaos mode is on and that side's switch is on */
 export const rulesOff = P => !!(S.chaos && P && P.free);

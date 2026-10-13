@@ -26,7 +26,7 @@
     <div class="player" id="stripTop">
       <div class="avatar" id="avTop"></div>
       <div class="pinfo">
-        <div class="pline"><span class="name" id="nameTop"></span><span class="rating" id="ratingTop"></span><span class="flagbadge" id="badgeTop"></span></div>
+        <div class="pline"><span class="name" id="nameTop"></span><span class="rating" id="ratingTop"></span><button class="lvl" id="lvlTop" hidden></button><span class="flagbadge" id="badgeTop"></span></div>
         <div class="pline sub"><span class="caps" id="capsTop"></span><span class="adv" id="advTop"></span></div>
       </div>
       <div class="clock" id="clockTop" hidden></div>
@@ -38,7 +38,7 @@
     <div class="player" id="stripBot">
       <div class="avatar" id="avBot"></div>
       <div class="pinfo">
-        <div class="pline"><span class="name" id="nameBot"></span><span class="rating" id="ratingBot"></span><span class="flagbadge" id="badgeBot"></span></div>
+        <div class="pline"><span class="name" id="nameBot"></span><span class="rating" id="ratingBot"></span><button class="lvl" id="lvlBot" hidden></button><span class="flagbadge" id="badgeBot"></span></div>
         <div class="pline sub"><span class="caps" id="capsBot"></span><span class="adv" id="advBot"></span></div>
       </div>
       <div class="clock" id="clockBot" hidden></div>
@@ -54,7 +54,6 @@
 
     <section class="tab" id="tab-play">
       <div class="statusbar"><div id="status"></div><div id="einfo"></div></div>
-      <div id="live" hidden></div>
       <div id="bubble" hidden></div>
       <div id="moves"></div>
       <div class="navrow">
@@ -85,7 +84,7 @@
           <div class="gh">Time control</div>
           <div class="tcpick" id="tcPick" role="radiogroup" aria-label="Time control"></div>
           <input type="hidden" id="tc" value="0">
-          <label class="chk" id="tcAIrow"><input type="checkbox" id="tcAI"> computer and AI players are timed too</label>
+          <label class="chk" id="tcAIrow" title="Engines are always on the clock. A slow local model can lose on time in a fast game: tick this to let AI models think as long as they like."><input type="checkbox" id="tcLLM"> AI models play without a clock</label>
         </div>
 
         <div class="group">
@@ -121,6 +120,7 @@
     </section>
   </aside>
 </div>
+<div id="strengthPop" hidden role="dialog" aria-label="Engine strength"></div>
 <div id="promo" hidden><div class="box" id="promoBox"></div></div>
 <dialog id="settings"></dialog>
 <div id="toast" role="status"></div>

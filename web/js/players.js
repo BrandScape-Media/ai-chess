@@ -1,7 +1,7 @@
 /* computer players: the built-in engine (web worker), UCI engines (through the server) and AI models.
    GPL-3.0-or-later */
 import * as C from './core.js';
-import {S, SIDE, VARIANT_UCI, hooks, humanCount, rulesOff, sqOf, shortModel, ascii, histText} from './state.js';
+import {S, SIDE, VARIANT_UCI, hooks, humanCount, timed, rulesOff, sqOf, shortModel, ascii, histText} from './state.js';
 import {api, toast, sleep} from './util.js';
 import {canvasPiece} from './theme.js';
 import {BOTS} from './historic.js';
@@ -23,7 +23,14 @@ export function cancelThinking() {
   if (worker) { worker.terminate(); worker = null; }
 }
 const stale = (gid, len) => gid !== S.gameId || len !== S.moves.length;
-const minDelay = () => humanCount() ? 350 : 800;
+/* a short pause so engine moves don't feel instant; on the clock it would cost time, so it is shorter */
+const minDelay = () => S.clock && timed(S.pos.turn) ? 120 : humanCount() ? 350 : 800;
+/* thinking time an engine may use on the clock: a slice of what is left plus most of the increment */
+function clockBudget(side) {
+  if (!S.clock || !timed(side)) return 0;
+  const left = S.clock.ms[side], inc = S.clock.inc;
+  return Math.max(60, Math.min(left / 25 + inc * .8, left * .4));
+}
 
 function fmtScore(cp, mate) {
   if (mate != null) return 'M' + (mate > 0 ? '+' : '-') + Math.abs(mate);
@@ -39,12 +46,13 @@ export function askEngine(P) {
   const id = ++reqId, gid = S.gameId, len = S.moves.length, t0 = performance.now(), side = S.pos.turn;
   S.eng = {id, gid, len, t0, P, side};
   const bot = BOTS[P.engine] ? P.engine : null;
-  const msg = {id, fen: S.startFen, variant: S.variant, c960: S.c960, moves: S.moves.slice(), level: P.level ?? 3, bot};
+  const msg = {id, fen: S.startFen, variant: S.variant, c960: S.c960, moves: S.moves.slice(), level: P.level ?? 3, bot, maxMs: clockBudget(side) || null};
   const w = ensureWorker();
   if (w) w.postMessage(msg);
   else setTimeout(() => {
     const p = new C.Pos(S.startFen, S.variant, S.c960); for (const m of msg.moves) p.make(m);
-    onWorker({data: {id, done: true, res: bot ? BOTS[bot].fn(p) : C.search(p, C.LEVELS[msg.level])}});
+    const lv = C.LEVELS[msg.level];
+    onWorker({data: {id, done: true, res: bot ? BOTS[bot].fn(p) : C.search(p, msg.maxMs ? {...lv, time: Math.min(lv.time, msg.maxMs)} : lv)}});
   }, 60);
 }
 function onWorker(e) {
@@ -98,7 +106,10 @@ async function askExternal(P) {
   /* three-check FENs carry the remaining checks ("3+3"); without it Fairy-Stockfish thinks the game is already over */
   const checksFen = (f, w, b) => { if (S.variant !== C.V_3CHECK) return f; const t = f.split(' '); t.splice(4, 0, `${w}+${b}`); return t.join(' '); };
   const req = {engine: e.id, game: S.gameId, variant, chess960: S.c960, fen: checksFen(S.startFen, 3, 3), moves: S.moves.map(m => C.uci(m, S.c960)),
-    elo: e.kind === 'elo' ? (P.elo || null) : null, movetime: P.movetime || 1000, nodes: e.kind === 'nodes' ? P.nodes : null, maia: P.maia || 1500};
+    elo: e.kind === 'elo' ? (P.elo || null) : null, movetime: P.movetime || 1000, nodes: e.kind === 'nodes' ? P.nodes : null, maia: P.maia || 1500,
+    depth: (e.kind === 'elo' || e.kind === 'time') && P.depth ? P.depth : null};
+  /* on the clock the engine manages its own time from the real clocks */
+  if (S.clock && timed(side)) req.clock = {wtime: Math.max(1, Math.round(S.clock.ms[0])), btime: Math.max(1, Math.round(S.clock.ms[1])), winc: S.clock.inc, binc: S.clock.inc};
   if (free) req.fen_now = checksFen(S.pos.fen(), Math.max(0, 3 - S.pos.checks[0]), Math.max(0, 3 - S.pos.checks[1]));
   let r;
   try { r = await api('/api/engine/go', req, ctl.signal); }

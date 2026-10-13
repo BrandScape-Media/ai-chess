@@ -514,10 +514,21 @@ class Engines:
                         pos = f"position fen {req['fen_now']}"
                     else:
                         pos = f"position fen {req['fen']}" + (" moves " + " ".join(req["moves"]) if req.get("moves") else "")
+                    clock = req.get("clock") or None
+                    clk = ""
+                    if clock:   # real clocks: the engine decides how long to think
+                        c = {k: max(0, int(clock.get(k) or 0)) for k in ("wtime", "btime", "winc", "binc")}
+                        clk = f" wtime {max(1, c['wtime'])} btime {max(1, c['btime'])} winc {c['winc']} binc {c['binc']}"
+                    depth = int(req.get("depth") or 0)
                     if e["kind"] == "maia":
                         go, tmo = "go nodes 1", 60
                     elif req.get("nodes"):
-                        go, tmo = f"go nodes {int(req['nodes'])}", 300
+                        go, tmo = f"go nodes {int(req['nodes'])}" + clk, 300
+                    elif clk:
+                        go = "go" + (f" depth {depth}" if depth else "") + clk
+                        tmo = max(c["wtime"], c["btime"]) / 1000 + 30
+                    elif depth:   # depth limit, capped so a deep search can't hang the game
+                        go, tmo = f"go depth {depth} movetime 20000", 50
                     else:
                         ms = int(req.get("movetime") or 1000)
                         go, tmo = f"go movetime {ms}", ms / 1000 + 30

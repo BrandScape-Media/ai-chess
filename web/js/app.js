@@ -3,14 +3,16 @@ import * as C from './core.js';
 import {$, api, toast, el, esc, relayOK} from './util.js';
 import {S, SIDE, VARIANT_NAME, VARIANT_UCI, hooks, isAI, timed, humanCount, rulesOff, seatName, shortModel, ascii, histText, remember} from './state.js';
 import {applyAppearance, setPiece, preloadCanvasPieces, isImageSet, glyph} from './theme.js';
-import {SET, loadSettings, saveSettings, openSettings, refreshEngines, onSettings} from './settings.js';
+import {SET, loadSettings, saveSettings, openSettings, refreshEngines, onSettings, levelCards} from './settings.js';
+import {tierById, tierFor} from './levels.js';
 import {askEngine, askLLM, cancelThinking, resolveIllegal, arrowGeom, sqXY, ARROW_COL, bestMoveHint} from './players.js';
 import {ICONS, icon} from './icons.js';
 import {BOTS} from './historic.js';
 import {initPuzzles, puzzleMove, renderPanel as renderPuzzles} from './puzzles.js';
 import {analyze, threat, classify, winPct, fmtEval, CLASSES} from './analysis.js';
 import {initChat, assignPersonas, onGameStart, onMove, onGameOver, onTakeback, say, sysMsg, chatVisible, restoreChat, resetChat, showTab, activeTab} from './chat.js';
-import {initReview, startReview, renderReviewTab, reviewArrows, checkRetry, reviewReady, openReview} from './review.js';
+import {initReview, startReview, renderReviewTab, reviewArrows, checkRetry, reviewReady, openReview, historyReview} from './review.js';
+import {accClass} from './review-core.js';
 
 const VAL = [0, 1, 3, 3, 5, 9, 0];
 const START_COUNT = [0, 8, 2, 2, 2, 1, 1];
@@ -37,6 +39,12 @@ const DEPTH_OPTS = [0, 1, 2, 3, 5, 8, 10, 12, 15, 18, 20, 25, 30];
 /* very rough strength of a depth-limited engine */
 const depthElo = d => 900 + d * 125;
 const NODES = [[1, '1 node (pure instinct)'], [10, '10 nodes'], [100, '100 nodes'], [800, '800 nodes'], [5000, '5000 nodes'], [30000, '30k nodes']];
+
+/* ================= your level: default strengths ================= */
+/* the level you picked on the first start (or the one closest to your rating) gives every new opponent its default strength;
+   these fill only what a seat doesn't have yet, so a strength you chose yourself stays */
+const myTier = () => tierById(SET.profile?.level) || tierFor(SET.profile?.rating || 1200);
+const STR = () => { const t = myTier(); return {level: t.level, elo: t.elo, maia: t.maia, nodes: t.nodes}; };
 
 /* ================= setup panel ================= */
 const pendingModel = ['', ''];
@@ -85,7 +93,8 @@ function engineMenus(i, want) {
   sel.value = [...sel.options].some(o => o.value === keep) && keep !== '__more' ? keep : 'builtin';
   const e = engineEntry($('engine' + i).value) || {kind: 'builtin'};
   const elo = e.elo || [1320, 3190];
-  const wantElo = want ? want.elo || 0 : +($('elo' + i).value || 0);
+  /* an Elo below or above what the engine can do is clamped to its range (it used to fall back to full strength) */
+  const w0 = want ? want.elo || 0 : +($('elo' + i).value || 0), wantElo = w0 ? Math.max(elo[0], Math.min(elo[1], w0)) : 0;
   fillSelect($('elo' + i), ELO_STEPS.filter(v => !v || (v >= elo[0] && v <= elo[1])).map(v => [v, v ? v + ' Elo' : 'Full strength']), wantElo);
   if (wantElo >= elo[0] && wantElo <= elo[1]) setOpt($('elo' + i), wantElo, wantElo + ' Elo');
   fillSelect($('maia' + i), Object.keys(e.weights || {}).filter(k => /^\d+$/.test(k)).map(k => [k, k]), want ? want.maia || 1500 : ($('maia' + i).value || 1500));
@@ -155,7 +164,12 @@ function renderSeatSliders(i) {
 }
 function sliderRow(r, P, onSet) {
   const cur = r.key === 'maia' ? +(P.maia || 1500) : r.key === 'level' ? (P.level ?? 3) : (P[r.key] ?? 0);
-  let idx = r.values.indexOf(cur); if (idx < 0) idx = r.key === 'depth' || r.key === 'elo' ? r.values.length - 1 : 0;
+  let idx = r.values.indexOf(cur);
+  if (idx < 0 && cur && typeof cur === 'number') {   /* a value between two steps: the nearest step (never "full strength" by accident) */
+    let best = -1; r.values.forEach((v, j) => { if (v && (best < 0 || Math.abs(v - cur) < Math.abs(r.values[best] - cur))) best = j; });
+    idx = best;
+  }
+  if (idx < 0) idx = r.key === 'depth' || r.key === 'elo' ? r.values.length - 1 : 0;
   const val = el('span', {class: 'v'}, r.fmt(r.values[idx]));
   const range = el('input', {type: 'range', min: 0, max: r.values.length - 1, step: 1, value: idx, 'aria-label': r.label});
   const paint = () => range.style.setProperty('--p', (r.values.length > 1 ? +range.value / (r.values.length - 1) * 100 : 100) + '%');
@@ -187,7 +201,7 @@ function showMode(m) {
     const ts = [0, 1].map(i => $('type' + i).value), hum = ts.filter(t => t === 'human').length;
     if (hum !== 1) {   /* you against one opponent */
       if (gameOn()) S.setupDirty = true;
-      const opp = ts[1] !== 'human' ? readSeat(1) : ts[0] !== 'human' ? readSeat(0) : {type: 'engine', engine: 'builtin', level: 2};
+      const opp = ts[1] !== 'human' ? readSeat(1) : ts[0] !== 'human' ? readSeat(0) : {type: 'engine', engine: 'builtin', ...STR()};
       writeSeat(0, {...readSeat(0), type: 'human'}); writeSeat(1, opp); seatVis(0); seatVis(1);
       if (!S.setupDirty) { applySeat(0); applySeat(1); }
     }
@@ -304,8 +318,8 @@ function writeSeat(i, c = {}) {
   if (!relayOK && t === 'llm') t = 'engine';
   $('type' + i).value = t;
   $('engine' + i).dataset.want = c.engine || 'builtin';
-  engineMenus(i, {engine: c.engine || 'builtin', elo: c.elo || 0, maia: c.maia || 1500});
-  $('level' + i).value = c.level ?? 3; $('nodes' + i).value = c.nodes || 800; $('movetime' + i).value = c.movetime || 1000;
+  engineMenus(i, {engine: c.engine || 'builtin', elo: c.elo ?? STR().elo, maia: c.maia || STR().maia});
+  $('level' + i).value = c.level ?? STR().level; $('nodes' + i).value = c.nodes || STR().nodes; $('movetime' + i).value = c.movetime || 1000;
   setOpt($('depth' + i), c.depth || 0, 'depth ' + c.depth);
   $('prov' + i).dataset.want = c.provider || 'lmstudio'; providerMenu(i, c.provider || 'lmstudio');
   $('model' + i).value = c.model || ''; pendingModel[i] = c.model || '';
@@ -396,46 +410,95 @@ function fmtDate(t) {
   const hm = d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
   return same ? 'Today ' + hm : d.toLocaleDateString([], {day: 'numeric', month: 'short', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric'}) + ' ' + hm;
 }
+/* the day a game was played, for the history's day groups */
+function dayLabel(t) {
+  const d = new Date(t), now = new Date(), day = 864e5;
+  const start = x => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(), diff = Math.round((start(now) - start(d)) / day);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  if (diff < 7) return d.toLocaleDateString([], {weekday: 'long'});
+  return d.toLocaleDateString([], {day: 'numeric', month: 'short', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric'});
+}
+const REASON = r => !r ? '' : r[0].toUpperCase() + r.slice(1);
 async function renderHistory() {
   const list = $('histList'), stats = $('histStats');
   let games = [];
-  try { games = (await api('/api/history', {})).games || []; } catch (e) { list.innerHTML = ''; list.append(el('p', {class: 'empty'}, 'History unavailable: ' + e.message)); return; }
-  const vs = games.filter(g => g.players.filter(p => p.type === 'human').length === 1);
-  const score = {W: 0, D: 0, L: 0};
-  for (const g of vs) { const me = g.players.findIndex(p => p.type === 'human'); score[g.winnerSide < 0 ? 'D' : g.winnerSide === me ? 'W' : 'L']++; }
+  try { games = (await api('/api/history', {})).games || []; }
+  catch (e) { list.innerHTML = ''; list.append(el('div', {class: 'empty'}, el('p', {}, 'The history could not be loaded: ' + e.message))); return; }
+  const single = g => g.players.filter(p => p.type === 'human').length === 1;
+  const meOf = g => single(g) ? g.players.findIndex(p => p.type === 'human') : -1;
+  const outOf = g => { const me = meOf(g); return g.winnerSide < 0 ? 'draw' : me < 0 ? 'side' : g.winnerSide === me ? 'win' : 'loss'; };
+  const score = {win: 0, draw: 0, loss: 0};
+  for (const g of games) if (meOf(g) >= 0) score[outOf(g)]++;
   stats.innerHTML = '';
-  stats.append(el('span', {}, 'Rating ', el('b', {}, String(SET.profile?.rating || 1200))),
-    el('span', {}, el('b', {}, String(score.W)), ' won'), el('span', {}, el('b', {}, String(score.D)), ' drawn'), el('span', {}, el('b', {}, String(score.L)), ' lost'));
+  const tile = (v, label, cls = '') => el('div', {class: 'hs ' + cls}, el('b', {}, String(v)), el('small', {}, label));
+  stats.append(tile(SET.profile?.rating || 1200, 'Rating'), tile(score.win, 'Won', 'w'), tile(score.draw, 'Drawn'), tile(score.loss, 'Lost', 'l'));
   list.innerHTML = '';
-  if (!games.length) { list.append(el('div', {class: 'empty'}, el('p', {}, 'No finished games yet.'), el('p', {}, 'Every game that ends with a result shows up here, with its winner, so you can replay it or copy its PGN.'))); return; }
-  for (const g of games.slice().reverse()) {
-    const hum = g.players.findIndex(p => p.type === 'human'), single = g.players.filter(p => p.type === 'human').length === 1;
-    const out = g.winnerSide < 0 ? 'D' : single ? (g.winnerSide === hum ? 'W' : 'L') : g.winnerSide ? 'B' : 'W';
-    const badge = el('span', {class: 'res ' + (g.winnerSide < 0 ? 'draw' : single ? (out === 'W' ? 'win' : 'loss') : 'side'), title: g.result}, single || g.winnerSide < 0 ? (out === 'D' ? '½' : out === 'W' ? '1' : '0') : g.winnerSide ? '0-1' : '1-0');
-    const pl = (p, i) => el('span', {class: 'hp' + (g.winnerSide === i ? ' won' : '')}, el('i', {class: 'dot ' + (i ? 'b' : 'w')}), p.name, p.rating ? el('small', {}, ` ${p.rating}`) : null);
-    const what = g.winnerSide < 0 ? `Draw by ${g.reason}` : `${g.winner} won by ${g.reason}`;
-    const meta = [Math.ceil(g.plies / 2) + ' moves', tcName(g.clock), g.variant ? VARIANT_NAME[g.variant] : g.startName, fmtDate(g.date)].filter(Boolean).join(' · ');
-    const row = el('div', {class: 'hrow'}, badge,
-      el('div', {class: 'hmain'}, el('div', {class: 'hplayers'}, pl(g.players[0], 0), el('span', {class: 'hvs'}, 'vs'), pl(g.players[1], 1)),
-        el('div', {class: 'hwhat'}, what, g.delta ? el('span', {class: g.delta.delta >= 0 ? 'up' : 'down'}, ` ${g.delta.delta >= 0 ? '+' : ''}${g.delta.delta}`) : null),
-        el('div', {class: 'hmeta'}, meta)),
-      el('div', {class: 'hbtns'},
-        el('button', {class: 'ib', title: 'Replay this game', html: icon('play'), onclick: () => replayGame(g)}),
-        el('button', {class: 'ib', title: 'Copy PGN', html: icon('copy'), onclick: () => copy(g.pgn, 'PGN')}),
-        el('button', {class: 'ib', title: 'Delete from history', html: icon('trash'), onclick: async () => { await api('/api/history', {remove: g.id}); renderHistory(); }})));
-    list.append(row);
+  if (!games.length) {
+    list.append(el('div', {class: 'hempty'}, el('img', {src: 'avatars/coach.webp', alt: ''}), el('p', {}, 'No finished games yet. Every game that ends with a result shows up here, ready to replay or review.')));
+    return;
+  }
+  /* newest first, grouped by day; each group shows your wins, draws and losses that day */
+  const sorted = games.slice().sort((a, b) => b.date - a.date), groups = new Map();
+  for (const g of sorted) { const k = new Date(g.date).toDateString(); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(g); }
+  const backfill = [];
+  for (const day of groups.values()) {
+    const c = {win: 0, draw: 0, loss: 0};
+    for (const g of day) if (meOf(g) >= 0) c[outOf(g)]++;
+    list.append(el('div', {class: 'hday'}, el('span', {}, dayLabel(day[0].date)), c.win + c.draw + c.loss ? el('small', {}, `${c.win}W ${c.draw}D ${c.loss}L`) : null));
+    for (const g of day) {
+      const me = meOf(g), out = outOf(g), opp = me >= 0 ? g.players[me ^ 1] : g.players[g.winnerSide === 1 ? 1 : 0];
+      const av = el('div'); paintAvatar(av, opp, 'avatar');
+      const name = me >= 0 ? el('span', {class: 'nm'}, opp.name) : el('span', {class: 'nm'}, `${g.players[0].name} vs ${g.players[1].name}`);
+      const sub = [REASON(g.reason) + (g.plies ? ` in ${Math.ceil(g.plies / 2)} moves` : ''), tcName(g.clock), g.variant ? VARIANT_NAME[g.variant] : g.startName].filter(Boolean).join(' · ');
+      const side = me >= 0 ? el('img', {class: 'hside', src: `pieces/cburnett/${me ? 'b' : 'w'}K.svg`, alt: '', title: `You played ${SIDE[me]}`}) : null;
+      const label = out === 'side' ? (g.result === '1-0' ? '1-0' : '0-1') : {win: 'Win', loss: 'Loss', draw: 'Draw'}[out];
+      const d = g.delta && me >= 0 ? g.delta.delta : null;
+      const acc = el('span', {class: 'hacc none'});
+      const fill = R => {
+        const a = R && Array.isArray(R.acc) ? (me >= 0 ? R.acc[me] : null) : null;
+        if (a == null) {
+          if (R && Array.isArray(R.acc) && me < 0 && R.acc[0] != null) { acc.className = 'hacc'; acc.replaceChildren(el('b', {}, `${R.acc[0]} / ${R.acc[1]}`), ' accuracy'); }
+          return;
+        }
+        const c = CLASSES[accClass(a)];
+        acc.className = 'hacc'; acc.title = 'Your accuracy in this game';
+        acc.replaceChildren(el('i', {style: `background:${c ? c.col : 'var(--muted)'}`}), el('b', {}, a.toFixed(1)), ' accuracy');
+      };
+      if (g.review && Array.isArray(g.review.acc)) fill(g.review);
+      else if (g.review) backfill.push({g, fill});
+      const row = el('div', {class: 'hrow ' + out, title: fmtDate(g.date)},
+        av,
+        el('div', {class: 'hmain'}, name, opp.rating && me >= 0 ? el('small', {}, String(opp.rating)) : null),
+        el('div', {class: 'hsub'}, side, el('span', {}, sub)),
+        el('div', {class: 'hres'}, el('span', {class: 'res ' + out}, label), d != null ? el('span', {class: 'hdelta ' + (d >= 0 ? 'up' : 'down')}, (d >= 0 ? '+' : '') + d) : null),
+        el('div', {class: 'hacts'}, acc,
+          el('button', {class: 'hrv', title: g.review ? 'Open the review' : 'Review this game with the coach', html: icon('chart-line') + '<span>Review</span>',
+            onclick: () => { if (replayGame(g, {quiet: true})) openReview('summary'); }}),
+          el('button', {class: 'ib', title: 'Replay on the board', html: icon('play'), onclick: () => replayGame(g)}),
+          el('button', {class: 'ib sec', title: 'Copy PGN', html: icon('copy'), onclick: () => copy(g.pgn, 'PGN')}),
+          el('button', {class: 'ib sec', title: 'Delete from history', html: icon('trash'), onclick: async () => { await api('/api/history', {remove: g.id}); renderHistory(); }})));
+      list.append(row);
+    }
   }
   list.append(el('div', {class: 'histfoot'}, el('button', {class: 'danger', onclick: async () => { if (confirm('Delete the whole game history? Your rating stays.')) { await api('/api/history', {clear: true}); renderHistory(); } }}, 'Clear history')));
+  /* reviews saved before 1.3.1 don't carry the accuracy: work it out once and save it with the game */
+  for (const {g, fill} of backfill) {
+    const R = await historyReview(g);
+    if (!R) continue;
+    fill(R);
+    api('/api/history', {update: {id: g.id, review: R}}).catch(() => {});
+  }
 }
-/* open a finished game from the history in review mode */
-function replayGame(g) {
-  if (!S.over && S.moves.length && !confirm('Leave the current game to replay this one?')) return;
+/* open a finished game from the history in review mode (true when it opened) */
+function replayGame(g, {quiet = false} = {}) {
+  if (!S.over && S.moves.length && !S.pzBoard && !confirm('Leave the current game to replay this one?')) return false;
   let pos, sans = [];
   try {
     pos = new C.Pos(g.startFen || C.START_FEN, g.variant | 0, !!g.c960);
     S.lastOn = new Map();
     for (const m of g.movesRaw) { remember(pos); sans.push(pos.san(m)); pos.make(m); }
-  } catch (e) { toast('This game could not be loaded'); return; }
+  } catch (e) { toast('This game could not be loaded'); return false; }
   S.gameId++; cancelThinking(); cancelPremove();
   S.seats = g.players.map(p => Object.assign(seatFrom({type: p.type === 'agent' && !S.config.agent ? 'llm' : p.type, engine: p.engine, model: p.model, provider: p.provider,
     level: p.level, elo: p.elo, maia: p.maia, nodes: p.nodes, illegal: p.illegal}), {rating: p.rating}));
@@ -453,7 +516,8 @@ function replayGame(g) {
   S.viewPly = 0;
   showTab('play'); render(); syncRelay();
   if (S.moves.length >= 2) startReview(S.gameId, g.review);   /* saved with the game: opens instantly */
-  toast('Replaying: use the arrows or the move list');
+  if (!quiet) toast('Replaying: use the arrows or the move list');
+  return true;
 }
 /* a different player (or model/engine) takes over side i right away, from the current position */
 function applySeat(i) {
@@ -493,7 +557,7 @@ function saveSetup() {
 function loadSetup() {
   let j = null;
   try { j = JSON.parse(localStorage.getItem('aichess.setup') || 'null'); } catch (e) {}
-  j = j || {seats: [{type: 'human'}, {type: 'engine', level: 3}]};
+  j = j || {seats: [{type: 'human'}, {type: 'engine'}]};   /* a new player: the strength comes from their level */
   for (const i of [0, 1]) writeSeat(i, j.seats?.[i]);
   if (j.variant != null) $('variant').value = j.variant;
   if (j.start) $('start').value = j.start;
@@ -540,7 +604,7 @@ function startGame() {
   const seats = [0, 1].map(i => seatFrom(readSeat(i)));
   for (const i of [0, 1]) {
     const P = seats[i];
-    if (P.type === 'llm' && !P.model) { toast(`No model chosen for ${SIDE[i]}: the built-in engine plays instead`); Object.assign(P, {type: 'engine', engine: 'builtin', level: 3}); }
+    if (P.type === 'llm' && !P.model) { toast(`No model chosen for ${SIDE[i]}: the built-in engine plays instead`); Object.assign(P, {type: 'engine', engine: 'builtin', level: STR().level}); }
   }
   S.gameId++; cancelThinking();
   S.pz = null; S.pzRun = null; S.pzBoard = false;
@@ -905,8 +969,8 @@ function strengthSliders(P, clockOn = !!S.clock) {
   const think = {key: 'movetime', label: 'Think time', hint: 'per move (no clock)', values: TIMES.map(t => t[0]), fmt: v => (TIMES.find(t => t[0] === v) || [0, v + ' ms'])[1]};
   if (k === 'builtin') out.push({key: 'level', label: 'Level', values: [0, 1, 2, 3, 4], fmt: v => `${v + 1} · ${C.LEVELS[v].name} (about ${BUILTIN_ELO[v]})`});
   if (k === 'elo') {
-    const [lo, hi] = e.elo || [1320, 3190], vals = [];
-    for (let v = Math.ceil(lo / 50) * 50; v <= hi; v += 50) vals.push(v);
+    const [lo, hi] = e.elo || [1320, 3190], vals = [lo];   /* the engine's lowest strength, then steps of 50 */
+    for (let v = Math.floor(lo / 50) * 50 + 50; v <= hi; v += 50) vals.push(v);
     out.push({key: 'elo', label: 'Strength', values: [...vals, 0], fmt: v => v ? v + ' Elo' : 'Full strength'});
   }
   if (k === 'elo' || k === 'time') { out.push(depth); if (!clockOn) out.push(think); }
@@ -1644,7 +1708,7 @@ $('start').onchange = () => { startVis(); saveSetup(); };
 $('peek').onchange = () => { S.peek = $('peek').checked; saveSetup(); syncRelay(); };
 $('chaos').onchange = () => { S.chaos = $('chaos').checked; seatVis(0); seatVis(1); saveSetup(); render(); syncRelay(); };
 window.addEventListener('keydown', e => {
-  if (['SELECT', 'INPUT', 'TEXTAREA'].includes(e.target.tagName) || $('settings').open) return;
+  if (['SELECT', 'INPUT', 'TEXTAREA'].includes(e.target.tagName) || $('settings').open || $('welcome').open) return;
   if (e.key === 'ArrowLeft') { if (!exploreBack()) goView(curPly() - 1); e.preventDefault(); }
   else if (e.key === 'ArrowRight') { goView(curPly() + 1); e.preventDefault(); }
   else if (e.key === 'Home') { goView(0); e.preventDefault(); }
@@ -1691,6 +1755,48 @@ initPuzzles({
   async backToGame() { if (!(await tryRestore())) startGame(); showTab('play'); },
 });
 
+/* ================= your level ================= */
+/* rating: also set your starting rating (and the puzzle rating if you haven't played puzzles);
+   opponent: also pick the level's first opponent (Stockfish for the strong levels, when it is installed) */
+function applyLevel(t, {rating = false, opponent = false} = {}) {
+  SET.profile = SET.profile || {rating: 1200, games: 0};
+  SET.profile.level = t.id;
+  if (rating) { SET.profile.rating = t.rating; if (!SET.puzzles.played) SET.puzzles.rating = t.puzzle; }
+  saveSettings();
+  if (gameOn()) S.setupDirty = true;   /* a game in progress keeps its opponents: this is for the next one */
+  const str = {level: t.level, elo: t.elo, maia: t.maia, nodes: t.nodes};
+  for (const i of [0, 1]) writeSeat(i, {...readSeat(i), ...str});
+  if (opponent) {
+    const i = oppSide(), bot = t.bot === 'builtin' || S.engineList?.some(e => e.id === t.bot) ? t.bot : 'builtin';
+    writeSeat(i, {...readSeat(i), type: 'engine', engine: bot, ...str});
+  }
+  seatVis(0); seatVis(1); saveSetup(); renderModeLists();
+  if (S.pos && !S.setupDirty && !S.over) { applySeat(0); applySeat(1); }
+  const me = S.seats.findIndex(P => P && P.type === 'human');
+  if (rating && me >= 0 && !S.over) S.seats[me].rating = SET.profile.rating;
+  if (S.pos) render();
+}
+/* the first start: how well do you play? (skipped by players who already have games or puzzles behind them) */
+const needsWelcome = () => relayOK && !SHOT && SET._loaded && !SET.profile?.level && !(SET.profile?.games > 0) && !(SET.puzzles?.played > 0);
+function welcome() {
+  return new Promise(resolve => {
+    const d = $('welcome'), fallback = tierById('intermediate');
+    let pick = fallback, closed = false;
+    const done = t => { if (closed) return; closed = true; if (d.open) d.close(); applyLevel(t, {rating: true, opponent: true}); resolve(); };
+    d.innerHTML = '';
+    d.append(el('div', {class: 'wbox'},
+      el('div', {class: 'whead'}, el('img', {src: 'avatars/coach.webp', alt: ''}),
+        el('div', {}, el('h2', {}, 'How well do you play?'), el('p', {}, 'This sets your starting rating and how strong your opponents are. You can change it any time in Settings.'))),
+      levelCards(pick.id, t => { pick = t; }),
+      el('div', {class: 'wfoot'},
+        el('button', {type: 'button', class: 'quiet', onclick: () => done(fallback)}, 'Skip'),
+        el('button', {type: 'button', class: 'primary', onclick: () => done(pick)}, 'Start playing'))));
+    d.addEventListener('cancel', e => { e.preventDefault(); done(fallback); }, {once: true});
+    d.showModal();
+    d.querySelector('.tier.on')?.focus();
+  });
+}
+
 /* Stockfish is set up in the background on the first start: once it is there, the analysis and the game review use it */
 async function watchStockfish() {
   let waited = false;
@@ -1703,7 +1809,7 @@ async function watchStockfish() {
 }
 
 /* ================= boot ================= */
-Object.assign(hooks, {play, render, afterMove, schedule, sync: () => syncRelay(), history: renderHistory, newTab: () => showMode('hub'), puzzles: () => renderPuzzles(), review: () => renderReviewTab(), chatChanged: saveEndChat});
+Object.assign(hooks, {play, render, afterMove, schedule, sync: () => syncRelay(), history: renderHistory, newTab: () => showMode('hub'), puzzles: () => renderPuzzles(), review: () => renderReviewTab(), chatChanged: saveEndChat, applyLevel});
 initReview({goView, curPly, render, showTab, activeTab, tick, clearSel, exploreMove, humanSide, winPly, paintAvatar});
 for (const e of document.querySelectorAll('[data-ic]')) e.insertAdjacentHTML('afterbegin', icon(e.dataset.ic));
 (async () => {
@@ -1717,7 +1823,9 @@ for (const e of document.querySelectorAll('[data-ic]')) e.insertAdjacentHTML('af
   S.peek = $('peek').checked;
   initChat();
   await Promise.all([0, 1].filter(i => $('type' + i).value === 'llm').map(i => loadModels(i)));
-  if (!(await tryRestore())) startGame();
+  const restored = await tryRestore();
+  if (!restored && needsWelcome()) await welcome();
+  if (!restored) startGame();
   if (!SHOT) pollRelay();
   const h = /settings(?:=(\w+))?/.exec(location.hash);   /* e.g. #settings=engines */
   if (h) openSettings(h[1]);

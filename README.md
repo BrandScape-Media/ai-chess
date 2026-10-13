@@ -52,7 +52,7 @@ Running a model on another PC? Change the address in **⚙ Settings → AI provi
 
 ### Chess engines
 
-The built-in engine always works (5 levels, every variant). Real engines install with one click from **⚙ Settings → Chess engines**, downloaded from their official GitHub releases:
+**Stockfish comes with the game:** the program carries it and sets it up on the first start (running from source, it is downloaded in the background), so the evaluation, hints and game reviews use it from the beginning. The built-in engine always works too (5 levels, every variant). More engines install with one click from **⚙ Settings → Chess engines**, downloaded from their official GitHub releases:
 
 | Engine | |
 |---|---|
@@ -87,14 +87,15 @@ Like the chat on chess.com: talk to the model while you play. Every computer opp
 * **Clocks:** bullet (1, 1|1, 2|1), blitz (3, 3|2, 5), rapid (10, 10|5, 15|10) or 30 minutes. Everybody plays on the clock: engines manage their time like in a real game, and AI models can lose on time (or play untimed if you prefer).
 * **Premoves:** queue one or several moves while the opponent thinks. In chaos mode they are played even when they've become illegal.
 * **Game history** with the winner of every game, replay and PGN.
-* **Game review:** when a game ends you get your accuracy, your rating change and how many best, excellent and good moves you played (and the brilliant ones). Step through the game with the evaluation, move feedback and best-move arrows, and move the pieces yourself to try other lines. The review panel has both sides' accuracy, an evaluation graph you can click, the key moments (`[` and `]` jump between them), a coach line for every move, and **Retry** on your mistakes: find a better move from the same position.
-* **Puzzles:** about 3,000 puzzles from the lichess puzzle database (CC0), with your own puzzle rating, **Puzzle Streak** (one mistake ends it) and **Puzzle Rush** (5 minutes, 3 strikes).
+* **Game Review**, like on chess.com: when a game ends, Stockfish looks at every move (a quick pass fills the result card in seconds, then a deep pass at depth 18). The **Review** tab shows both sides' accuracy and an estimated game rating, the opening's name, an evaluation graph you can click, every move class for both sides (Brilliant, Great, Best, Excellent, Good, Book, Inaccuracy, Miss, Mistake, Blunder) and how each phase went. Step through it with a coach that explains every move from the engine's lines (what the move allowed, what the better one wins), jump between key moments with `[` and `]`, and press **Explain** to have your own AI model explain a move, given only the engine's facts so it doesn't make things up. Reviews are saved with the game and reopen instantly from the history.
+* **Retry your mistakes:** the position before each of your mistakes becomes a little puzzle (the answer shows after two tries), one by one or as a drill through the whole game. The ones you get wrong come back later in **Puzzles → Your mistakes** until you get them right twice in a row.
+* **Puzzles:** about 3,000 puzzles from the lichess puzzle database (CC0), with your own puzzle rating, **Puzzle Streak** (one mistake ends it), **Puzzle Rush** (5 minutes, 3 strikes) and **Your mistakes** (positions from your own games).
 * **Assistance like on chess.com:** evaluation bar, move feedback (best, excellent, inaccuracy, mistake, blunder), suggestion and threat arrows, engine line. Switch them on before the game or from the gear during it. They use Stockfish (or another installed engine) and work offline.
 * **Ratings:** engines show realistic Elo estimates, every AI model gets a random rating for the game, and your own rating goes up and down as you win and lose.
 * **Hints** (best move from Stockfish or the built-in engine) and **takebacks**, each can be switched off.
 * Move list with the time spent on every move. Takebacks also take back the clock, and while reviewing, the clocks show the time left at that move. A crown marks the winning move and `???` an illegal one.
 * Click a player's picture or name for their card: change an engine's strength, or allow illegal moves for that side, in the middle of a game.
-* Move list with review, flip board, PGN/FEN export, the game is saved automatically.
+* Flip board, PGN/FEN export, the game is saved automatically.
 * **12 piece sets** and **11 board themes**, custom colors, or upload your own pieces.
 
 ![Appearance](docs/appearance.png)
@@ -125,4 +126,4 @@ The server listens on `localhost` only (unless `--lan`), only accepts requests f
 
 ## License
 
-GPL-3.0-or-later. Piece artwork from the [lichess](https://github.com/lichess-org/lila) project; see [web/pieces/LICENSES.md](web/pieces/LICENSES.md). Chess engines are separate programs with their own licenses and are downloaded only when you click Install.
+GPL-3.0-or-later. Piece artwork from the [lichess](https://github.com/lichess-org/lila) project; see [web/pieces/LICENSES.md](web/pieces/LICENSES.md). Puzzles from the lichess puzzle database and opening names from [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings) (both CC0). Chess engines are separate programs with their own licenses: [Stockfish](https://github.com/official-stockfish/Stockfish) (GPL-3.0, an unmodified official build; source at that link) ships inside the release builds; the others are downloaded only when you click Install.

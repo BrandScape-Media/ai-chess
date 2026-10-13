@@ -8,8 +8,9 @@ import {askEngine, askLLM, cancelThinking, resolveIllegal, arrowGeom, sqXY, ARRO
 import {ICONS, icon} from './icons.js';
 import {BOTS} from './historic.js';
 import {initPuzzles, puzzleMove, renderPanel as renderPuzzles} from './puzzles.js';
-import {analyze, threat, classify, winPct, fmtEval, CLASSES, moveAccuracy, isSacrifice} from './analysis.js';
-import {initChat, assignPersonas, onGameStart, onMove, onGameOver, onTakeback, say, sysMsg, chatVisible, restoreChat, showTab} from './chat.js';
+import {analyze, threat, classify, winPct, fmtEval, CLASSES} from './analysis.js';
+import {initChat, assignPersonas, onGameStart, onMove, onGameOver, onTakeback, say, sysMsg, chatVisible, restoreChat, showTab, activeTab} from './chat.js';
+import {initReview, startReview, renderReviewTab, reviewArrows, checkRetry, reviewReady, openReview} from './review.js';
 
 const VAL = [0, 1, 3, 3, 5, 9, 0];
 const START_COUNT = [0, 8, 2, 2, 2, 1, 1];
@@ -364,7 +365,7 @@ function finish(over) {
     saveSettings();
   }
   recordGame(over);
-  if (humanSide() >= 0 && S.moves.length >= 4 && !S.replay) reviewGame(S.gameId);
+  if (humanSide() >= 0 && S.moves.length >= 4 && !S.replay) startReview(S.gameId);   /* Game Review: starts right away, the card fills in */
   onGameOver(over);
 }
 
@@ -442,7 +443,7 @@ function replayGame(g) {
   restoreChat([]); clearSel();
   S.viewPly = 0;
   showTab('play'); render(); syncRelay();
-  if (humanSide() >= 0 && S.moves.length >= 4) reviewGame(S.gameId);
+  if (S.moves.length >= 2) startReview(S.gameId, g.review);   /* saved with the game: opens instantly */
   toast('Replaying: use the arrows or the move list');
 }
 /* a different player (or model/engine) takes over side i right away, from the current position */
@@ -825,7 +826,7 @@ function render() {
   chatVisible();
   renderHint();
   renderResult();
-  renderReview();
+  renderReviewTab();
   drawClocks();
   assistKick();
 }
@@ -858,7 +859,7 @@ function feedbackBadge() {
   const b = el('span', {class: 'fbadge', title: c.name, style: `background:${c.col}`});
   if (c.icon) b.innerHTML = ICONS[c.icon] || ''; else { b.textContent = c.glyph; if (c.glyph.length > 2) b.classList.add('g3'); }
   sq.append(b);
-  if (!(rv && reviewReady()) && (rv || (S.viewPly == null && !S.over))) {   /* in a full review the coach says it */
+  if (rv || (S.viewPly == null && !S.over)) {
     S.say = f.cls === 'win' ? `${f.played} wins the game.` : f.cls === 'illegal' ? `${f.played} broke the rules: that piece can't move like that.`
       : `${f.played} is ${f.cls === 'best' ? 'the best move' : f.cls === 'excellent' ? 'excellent' : f.cls === 'good' ? 'a good move' : 'a' + (f.cls === 'inaccuracy' ? 'n ' : ' ') + f.cls}` + (f.cls !== 'best' && f.best && f.best !== f.played ? `. Best was ${f.best}.` : '.');
     S.sayBy = -3; S.fbShown = curKey();
@@ -1292,143 +1293,6 @@ function drawAssist() {
   renderShapes();
 }
 /* ================= result card and the quick review behind it ================= */
-/* when a game against the computer ends, every position is analysed briefly: accuracy and the move classes
-   fill in on the card (the three best categories, like chess sites do), and the review board opens on the key moment */
-async function reviewGame(gid) {
-  const me = humanSide(); if (me < 0) return;
-  const n = S.moves.length, res = [];
-  S.review = {gid, me, done: 0, total: n + 1, counts: {}, acc: null, key: null};
-  renderReviewStats();
-  for (let k = 0; k <= n; k++) {
-    if (gid !== S.gameId) return;
-    res[k] = await analyze(posAt(k), 160);
-    S.review.done = k + 1;
-    if (k % 6 === 0) renderReviewStats();
-  }
-  if (gid !== S.gameId) return;
-  const fb = S.fb || (S.fb = new Map()), counts = {}, accs = [], accBy = [[], []], keys = [];
-  let key = null;
-  for (let k = 1; k <= n; k++) {
-    const prev = posAt(k - 1), m = S.moves[k - 1], mover = prev.turn, played = S.sans[k - 1].replace(/\?!$/, '');
-    let cls;
-    if ((m >> 17) & C.FL_FREE) cls = 'illegal';
-    else {
-      cls = classify(res[k - 1], res[k], mover, m);
-      if (!cls) continue;
-      const before = fb.get(k - 1)?.cls;
-      if (cls === 'best' && isSacrifice(prev, m) && (mover === 0 ? winPct(res[k]) : 100 - winPct(res[k])) >= 45) cls = 'brilliant';
-      else if (cls === 'best' && (before === 'mistake' || before === 'blunder')) cls = 'great';   /* punished the opponent's slip */
-      if (res[k - 1] && res[k]) { const a = moveAccuracy(res[k - 1], res[k], mover); accBy[mover].push(a); if (mover === me) accs.push(a); }
-    }
-    fb.set(k, {cls, best: res[k - 1]?.best ? prev.san(res[k - 1].best).replace(/\?!$/, '') : '', played});
-    if (mover === me) { counts[cls] = (counts[cls] || 0) + 1; if (key == null && (cls === 'blunder' || cls === 'mistake')) key = k; }
-    if (KEY_CLASSES.includes(cls)) keys.push(k);
-  }
-  /* accuracy: mean of the move accuracies, pulled toward the harmonic mean so one blunder still shows */
-  const mean = accs.length ? accs.reduce((a, b) => a + b, 0) / accs.length : null;
-  const harm = accs.length ? accs.length / accs.reduce((a, b) => a + 1 / Math.max(1, b), 0) : null;
-  const accOf = a => { if (!a.length) return null; const m = a.reduce((x, y) => x + y, 0) / a.length, h = a.length / a.reduce((x, y) => x + 1 / Math.max(1, y), 0); return (m + h) / 2; };
-  /* win chance for White after each ply, for the graph (a finished position has no analysis: use the result) */
-  const w = S.over ? (S.over.result === '1-0' ? 100 : S.over.result === '0-1' ? 0 : 50) : 50;
-  const wins = res.map((r, k) => r ? winPct(r) : k === n ? w : k ? null : 50);
-  for (let k = 1; k <= n; k++) if (wins[k] == null) wins[k] = wins[k - 1];
-  Object.assign(S.review, {counts, acc: mean == null ? null : (mean + harm) / 2, key, ready: true, evals: res, wins, keys, accBy: accBy.map(accOf)});
-  renderReviewStats(); render();
-}
-/* ================= game review panel: evaluation graph, key moments, coach, retry your mistakes ================= */
-const KEY_CLASSES = ['brilliant', 'great', 'inaccuracy', 'mistake', 'blunder', 'illegal'];
-const reviewReady = () => !!(S.review && S.review.ready && S.review.gid === S.gameId && S.review.wins);
-function renderReview() {
-  const box = $('review');
-  if (!reviewReady() || !reviewing() || S.pz) { box.hidden = true; return; }
-  const R = S.review, n = R.wins.length - 1, cur = S.explore ? S.explore.ply : curPly();
-  box.hidden = false; box.innerHTML = '';
-  /* accuracy for both sides */
-  const accs = el('div', {class: 'rv-acc'});
-  for (const i of [0, 1]) accs.append(el('div', {class: 'rv-a' + (i ? ' b' : ' w')}, el('i', {class: 'dot ' + (i ? 'b' : 'w')}), el('span', {}, seatName(i)),
-    el('b', {}, R.accBy[i] == null ? '--' : R.accBy[i].toFixed(1))));
-  box.append(accs);
-  /* the evaluation graph: White's win chance over the game; dots on the key moves, a line on the shown move */
-  const W = 300, H = 56, x = k => n ? k / n * W : 0, y = v => H - v / 100 * H;
-  let d = `M0,${H}`; for (let k = 0; k <= n; k++) d += `L${x(k).toFixed(1)},${y(R.wins[k]).toFixed(1)}`; d += `L${W},${H}Z`;
-  let dots = '';
-  for (const k of R.keys) { const c = CLASSES[S.fb.get(k)?.cls]; if (c) dots += `<circle cx="${x(k).toFixed(1)}" cy="${y(R.wins[k]).toFixed(1)}" r="3.2" fill="${c.col}" stroke="#0008" stroke-width=".8"/>`; }
-  const svg = el('div', {class: 'rv-graph', title: 'Click to jump to a move', html:
-    `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><rect width="${W}" height="${H}" class="bk"/><path d="${d}" class="wt"/><line x1="0" x2="${W}" y1="${H / 2}" y2="${H / 2}" class="mid"/>`
-    + `<line x1="${x(cur)}" x2="${x(cur)}" y1="0" y2="${H}" class="cur"/>${dots}</svg>`});
-  svg.onclick = e => { const r = svg.getBoundingClientRect(); goView(Math.round((e.clientX - r.left) / r.width * n)); };
-  box.append(svg);
-  /* key moments: jump between them */
-  const prevK = [...R.keys].reverse().find(k => k < cur), nextK = R.keys.find(k => k > cur);
-  const at = R.keys.indexOf(cur);
-  box.append(el('div', {class: 'rv-nav'},
-    el('button', {class: 'ib', title: 'Previous key moment ([)', html: icon('caret-left'), disabled: prevK == null, onclick: () => goView(prevK)}),
-    el('span', {}, R.keys.length ? (at >= 0 ? `Key moment ${at + 1} of ${R.keys.length}` : `${R.keys.length} key moments`) : 'No big swings in this game'),
-    el('button', {class: 'ib', title: 'Next key moment (])', html: icon('caret-right'), disabled: nextK == null, onclick: () => goView(nextK)})));
-  /* the coach on the shown move */
-  const say = el('p', {class: 'say'}, coachSay(cur));
-  const coach = el('div', {class: 'rv-coach'}, el('img', {src: 'avatars/coach.webp', alt: ''}), say);
-  const f = S.fb.get(cur), mover = (S.startPly + cur - 1) & 1;
-  if (S.retry) {
-    const T = S.retry;
-    say.textContent = T.solved ? `Yes! ${T.found} works. ${T.best && T.found !== T.best ? `The engine's choice was ${T.best}.` : ''}` : T.msg || `Find a better move for ${SIDE[T.side]} than ${T.played}.`;
-    coach.append(el('div', {class: 'rv-btns'},
-      T.solved && nextMistake(T.k) ? el('button', {class: 'primary', onclick: () => startRetry(nextMistake(T.k))}, 'Next mistake') : null,
-      !T.solved ? el('button', {onclick: () => { const k = T.k; S.retry = null; goView(k); }}, 'Show the answer') : el('button', {onclick: () => { S.retry = null; goView(T.k); }}, 'Back to the review')));
-  } else if (!S.explore && f && ['inaccuracy', 'mistake', 'blunder'].includes(f.cls) && cur >= 1 && S.seats[mover]?.type === 'human') {
-    coach.append(el('div', {class: 'rv-btns'}, el('button', {class: 'primary', html: icon('arrow-counter-clockwise') + '<span>Retry</span>', onclick: () => startRetry(cur)})));
-  }
-  box.append(coach);
-}
-/* what the coach says about the move that led to ply k (templates from the engine's numbers: nothing made up) */
-function coachSay(k) {
-  const R = S.review;
-  if (S.explore) return 'Your own line. The evaluation and arrows follow it; the arrows or Esc go back to the game.';
-  if (k === 0) return 'The starting position. Use the arrows or the graph to step through the game.';
-  if (k === winPly()) return `${S.sans[k - 1].replace(/\?!$/, '')} wins the game.`;
-  const f = S.fb.get(k), mover = (S.startPly + k - 1) & 1, who = humanCount() === 1 && S.seats[mover].type === 'human' ? 'You' : seatName(mover);
-  if (!f) return `${who} played ${S.sans[k - 1].replace(/\?!$/, '')}. The engine had no clear opinion (opening or a quick position).`;
-  const before = R.wins[k - 1], after = R.wins[k], me = v => mover ? 100 - v : v;
-  const swing = `${who === 'You' ? 'Your' : 'The'} winning chances went from ${Math.round(me(before))}% to ${Math.round(me(after))}%.`;
-  const line = (() => {   /* the engine's best line from the position before, a few moves */
-    const r = R.evals[k - 1]; if (!r || !r.pv || !r.pv.length) return '';
-    const q = posAt(k - 1), out = [];
-    for (const u of r.pv.slice(0, 5)) { const m = q.fromUci(u); if (!m) break; out.push(q.san(m).replace(/\?!$/, '')); q.make(m); }
-    return out.length > 1 ? ` The engine's line: ${out.join(' ')}.` : '';
-  })();
-  switch (f.cls) {
-    case 'illegal': return `${f.played} broke the rules: that piece can't move like that.`;
-    case 'brilliant': return `${f.played}!! A sound sacrifice, and the best move. ${swing}`;
-    case 'great': return `${f.played}! The only good answer to the opponent's slip, and ${who === 'You' ? 'you' : 'it was'} found it.`;
-    case 'best': return `${f.played} is the best move.`;
-    case 'excellent': case 'good': return `${f.played} is ${f.cls === 'good' ? 'a good move' : 'excellent'}${f.best && f.best !== f.played ? `; ${f.best} was a little better` : ''}.`;
-    default: return `${f.played} is ${f.cls === 'inaccuracy' ? 'an inaccuracy' : 'a ' + f.cls}. ${swing} Best was ${f.best}.${line}`;
-  }
-}
-/* retry a mistake as a mini puzzle: the position before it, find a move about as good as the engine's */
-const nextMistake = k => S.review.keys.find(j => j > k && ['inaccuracy', 'mistake', 'blunder'].includes(S.fb.get(j)?.cls) && S.seats[(S.startPly + j - 1) & 1]?.type === 'human');
-function startRetry(k) {
-  const f = S.fb.get(k); if (!f) return;
-  S.retry = {k, ply: k - 1, side: (S.startPly + k - 1) & 1, best: f.best, played: f.played, solved: false, msg: ''};
-  S.resultClosed = true;
-  goView(k - 1);
-}
-async function checkRetry(m) {
-  const T = S.retry, R = S.review, before = R.evals[T.ply];
-  if (!before) return;
-  const p = posAt(T.ply), san = p.san(m).replace(/\?!$/, '');
-  let ok = m === before.best;
-  if (!ok) {
-    p.make(m);
-    const after = await analyze(p, 250);
-    if (S.retry !== T) return;
-    const mine = r => r ? (T.side ? 100 - winPct(r) : winPct(r)) : (p.status().over && p.status().result !== '1/2-1/2' ? 100 : 50);
-    ok = mine(after) >= mine(before) - 4;
-  }
-  if (ok) { T.solved = true; T.found = san; tick(false); }
-  else { T.msg = `${san} isn't it. Try again.`; setTimeout(() => { if (S.retry === T && S.explore) { S.explore = null; clearSel(); render(); } }, 700); }
-  render();
-}
 const COUNT_ORDER = ['brilliant', 'great', 'best', 'excellent', 'good'];
 function renderReviewStats() {
   const box = document.querySelector('#result .rstats'), acc = document.querySelector('#result .racc');
@@ -1477,7 +1341,7 @@ function renderResult() {
     rv ? el('div', {class: 'coach'}, el('img', {src: 'avatars/coach.webp', alt: ''}), el('p', {class: 'say'}, coachLine(won, w < 0, S.review))) : null,
     rv ? el('div', {class: 'rstats'}) : null,
     el('div', {class: 'btns'},
-      rv ? el('button', {class: 'primary', html: icon('star-fill') + '<span>Game review</span>', onclick: () => { S.resultClosed = true; goView(S.review?.key || 1); }}) : null,
+      rv ? el('button', {class: 'primary', html: icon('star-fill') + '<span>Game review</span>', onclick: () => openReview()}) : null,
       el('div', {class: 'two'},
         el('button', {onclick: () => { S.resultClosed = true; showTab('new'); render(); }}, 'New game'),
         el('button', {class: rv ? '' : 'primary', onclick: () => startGame()}, 'Rematch'))));
@@ -1535,15 +1399,17 @@ function renderShapes() {
   /* aid arrows: the best move (on your turn, or always in a review), and what the opponent threatens */
   const A = assistOn(), rv = reviewing(), key = curKey();
   const live = S.viewPly == null && !S.over && S.pos && S.seats[S.pos.turn]?.type === 'human';
-  if ((live || rv) && A.suggest && S.an && S.an.key === key && S.an.res.best && !(S.hint && !rv)) {
+  const rva = rv ? reviewArrows() : [];
+  list.push(...rva);
+  if ((live || rv) && A.suggest && S.an && S.an.key === key && S.an.res.best && !(S.hint && !rv) && !rva.length && !(S.retry && !S.retry.solved)) {
     const m = S.an.res.best, to = (m >> 17) & C.FL_CASTLE ? (m & 0x70) + (((m >> 7) & 127) > (m & 127) ? 6 : 2) : (m >> 7) & 127;
     list.push({f: m & 127, t: to, c: 's'});
   }
   if (live && A.threat && S.threatA && S.threatA.key === key) list.push({f: S.threatA.f, t: S.threatA.t, c: 't'});
   if (adraw && adraw.to !== adraw.from) list.push({f: adraw.from, t: adraw.to, c: adraw.col, tmp: true});
   for (const a of list) {
-    const {line, head} = arrowGeom(a.f, a.t, S.flipped), col = {h: '#2f7fd8', s: '#3f9fe0', t: '#e0473a'}[a.c] || ARROW_COL[a.c];
-    h += `<g opacity="${a.tmp ? .55 : a.c === 's' || a.c === 't' ? .62 : .8}"><polyline points="${P(line)}" fill="none" stroke="${col}" stroke-width=".16" stroke-linejoin="round"/><polygon points="${P(head)}" fill="${col}"/></g>`;
+    const {line, head} = arrowGeom(a.f, a.t, S.flipped), col = {h: '#2f7fd8', s: '#3f9fe0', t: '#e0473a', v: '#5fb85a'}[a.c] || ARROW_COL[a.c];
+    h += `<g opacity="${a.tmp ? .55 : a.c === 's' || a.c === 't' ? .62 : a.c === 'v' ? .72 : .8}"><polyline points="${P(line)}" fill="none" stroke="${col}" stroke-width=".16" stroke-linejoin="round"/><polygon points="${P(head)}" fill="${col}"/></g>`;
   }
   svg.innerHTML = h;
 }
@@ -1817,15 +1683,27 @@ initPuzzles({
   async backToGame() { if (!(await tryRestore())) startGame(); showTab('play'); },
 });
 
+/* Stockfish is set up in the background on the first start: once it is there, the analysis and the game review use it */
+async function watchStockfish() {
+  let waited = false;
+  for (let i = 0; i < 400 && S.engineCatalog?.jobs?.stockfish?.state === 'running'; i++) {
+    waited = true;
+    await new Promise(r => setTimeout(r, 1500));
+    await refreshEngines();
+  }
+  if (waited && S.engineList?.some(e => e.id === 'stockfish')) { toast('Stockfish is ready: the evaluation and game reviews use it now'); render(); }
+}
+
 /* ================= boot ================= */
-Object.assign(hooks, {play, render, afterMove, schedule, sync: () => syncRelay(), history: renderHistory, newTab: () => showMode('hub'), puzzles: () => renderPuzzles()});
+Object.assign(hooks, {play, render, afterMove, schedule, sync: () => syncRelay(), history: renderHistory, newTab: () => showMode('hub'), puzzles: () => renderPuzzles(), review: () => renderReviewTab()});
+initReview({goView, curPly, render, showTab, activeTab, tick, clearSel, exploreMove, humanSide, winPly, paintAvatar});
 for (const e of document.querySelectorAll('[data-ic]')) e.insertAdjacentHTML('afterbegin', icon(e.dataset.ic));
 (async () => {
   if (relayOK) { try { S.config = await api('/api/config'); } catch (e) {} }
   await loadSettings();
   S.chatOn = SET.chat.enabled !== false;
   preloadCanvasPieces();
-  if (relayOK) { await refreshEngines(); if (!SHOT) await hello(); }
+  if (relayOK) { await refreshEngines(); if (!SHOT) await hello(); watchStockfish(); }
   buildSeat(0); buildSeat(1); buildTcPick(); buildAssist();
   loadSetup(); showMode('hub');
   S.peek = $('peek').checked;

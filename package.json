@@ -5,6 +5,6 @@
   "description": "Play chess against your local AI models and chess engines",
   "license": "GPL-3.0-or-later",
   "scripts": {
-    "test": "node tests/core.test.js"
+    "test": "node tests/core.test.js && node tests/review.test.js"
   }
 }

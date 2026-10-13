@@ -16,6 +16,8 @@ export const SET = {
   /* assistance while playing (chess.com-style options; can be switched before and during a game) */
   assist: {evalbar: false, feedback: false, suggest: false, threat: false, lines: false},
   puzzles: {rating: 1200, played: 0, solved: 0, streakBest: 0, rushBest: 0},
+  /* the AI model that explains moves in the game review (empty: the model you played, if any) */
+  coach: {provider: '', model: '', think: 'none'},
 };
 export const onSettings = {changed: null};   // app.js: refresh seat menus etc.
 
@@ -34,6 +36,7 @@ export async function loadSettings() {
     if (s.profile && s.profile.rating) SET.profile = s.profile;
     if (s.assist) Object.assign(SET.assist, s.assist);
     if (s.puzzles) Object.assign(SET.puzzles, s.puzzles);
+    if (s.coach) Object.assign(SET.coach, s.coach);
   } catch (e) { console.warn('settings', e); }
   applyAppearance(SET.appearance);
 }
@@ -43,7 +46,7 @@ export function saveSettings(now) {
   const go = async () => {
     try {
       const body = {appearance: SET.appearance, chat: SET.chat, personalities: SET.personalities, defaultPersonality: SET.defaultPersonality,
-        modelPersonality: SET.modelPersonality, profile: SET.profile, assist: SET.assist, puzzles: SET.puzzles, providers: SET.providers.map(p => ({id: p.id, base: p.base, name: p.name, kind: p.kind, custom: p.custom, key: p._key || '', clearKey: p._clear}))};
+        modelPersonality: SET.modelPersonality, profile: SET.profile, assist: SET.assist, puzzles: SET.puzzles, coach: SET.coach, providers: SET.providers.map(p => ({id: p.id, base: p.base, name: p.name, kind: p.kind, custom: p.custom, key: p._key || '', clearKey: p._clear}))};
       const s = await api('/api/settings', body);
       SET.providers = s.providers;
       if (onSettings.changed) onSettings.changed();
@@ -177,9 +180,38 @@ function aiTab(sec) {
       openGroups.add('custom');
       await saveSettings(true); openSettings();
     }}, 'Add provider')));
+  sec.append(coachGroup());
   sec.append(group('local', 'Local apps', `${local.length} apps on this computer`, local.map(card)),
     group('cloud', 'Cloud', cloud.some(p => p.keySet) ? `${cloud.filter(p => p.keySet).length} of ${cloud.length} with a key` : `${cloud.length} services, need an API key`, cloud.map(card)),
     group('custom', 'Custom providers', custom.length ? `${custom.length} added` : 'Any OpenAI-compatible or Anthropic API', [...custom.map(card), addCard]));
+}
+/* the AI coach of the game review: which model explains the moves (it only gets the engine's facts) */
+function coachGroup() {
+  const c = SET.coach, prov = el('select', {}, el('option', {value: ''}, 'The model I played against'), ...SET.providers.map(p => el('option', {value: p.id}, p.name)));
+  prov.value = c.provider || '';
+  const list = el('datalist', {id: 'coachModels'}), model = el('input', {type: 'text', list: 'coachModels', spellcheck: 'false', placeholder: 'model name', value: c.model || '', style: 'width:100%'});
+  const think = el('select', {}, el('option', {value: 'none'}, 'Off (fast)'), el('option', {value: 'low'}, 'Low'), el('option', {value: 'medium'}, 'Medium'));
+  think.value = c.think || 'none';
+  const status = el('span', {class: 's'});
+  const fill = async () => {
+    list.innerHTML = ''; model.disabled = !prov.value;
+    if (!prov.value) { status.textContent = 'Uses the AI model from your game, when there is one.'; return; }
+    status.textContent = 'loading the models…';
+    try {
+      const r = await api('/api/llm/models', {provider: prov.value});
+      for (const m of r.data.filter(m => !/embed/i.test(m.id))) list.append(el('option', {value: m.id, label: m.loaded ? '● loaded' : ''}));
+      if (!model.value && r.data.length) { model.value = (r.data.find(m => m.loaded) || r.data[0]).id; save(); }
+      status.textContent = `${r.data.length} models`;
+    } catch (e) { status.textContent = e.message; }
+  };
+  const save = () => { SET.coach = {provider: prov.value, model: prov.value ? model.value.trim() : '', think: think.value}; saveSettings(); };
+  prov.onchange = () => { model.value = ''; save(); fill(); };
+  model.onchange = think.onchange = save;
+  fill();
+  const sub = c.provider && c.model ? c.model : 'The model you played against';
+  return group('coach', 'Game review coach', sub, [el('div', {class: 'card'},
+    el('span', {class: 's'}, 'In a game review, Explain asks this model about a move. It only gets the engine\'s facts (the best move, the lines, the chances), so it explains instead of guessing.'),
+    el('div', {class: 'grid2'}, el('label', {}, 'Provider'), prov, el('label', {}, 'Model'), el('span', {}, model, list), el('label', {}, 'Thinking'), think), status)]);
 }
 /* collapsible group of cards; remembers which ones are open */
 const openGroups = new Set(['local', 'look-board', 'eng-installed', 'chat-defaults']);
@@ -326,6 +358,8 @@ function aboutTab(sec) {
     el('p', {class: 'hint'}, 'From the lichess project; see web/pieces/LICENSES.md.'),
     el('div', {}, ...PIECE_SETS.filter(s => s.lic).map(s => el('div', {class: 'hint'}, `${s.name}: ${s.by} (${s.lic})`))),
     el('h4', {}, 'Engines'),
-    el('p', {class: 'hint'}, 'The installable engines (Stockfish, Leela Chess Zero, Maia, Arasan and the rest) are separate programs with their own licenses, downloaded from their official releases only when you click Install.'));
+    el('p', {class: 'hint'}, 'Stockfish (GPL-3.0) comes with the game. The other engines (Leela Chess Zero, Maia, Arasan and the rest) are separate programs with their own licenses, downloaded from their official releases only when you click Install.'),
+    el('h4', {}, 'Data'),
+    el('p', {class: 'hint'}, 'Puzzles from the lichess puzzle database, opening names from lichess-org/chess-openings (both CC0).'));
 }
 export {isImageSet};

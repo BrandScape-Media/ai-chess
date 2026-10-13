@@ -2,19 +2,14 @@
 
 What comes next, in build order. Done items move to the README.
 
-## Game Review (next)
+## Game Review
 
-Already in: accuracy for both sides, a clickable evaluation graph, key moments (`[` `]`), a coach line per move, and **Retry your mistake** (the position before an inaccuracy, mistake or blunder becomes a mini puzzle; any move within about 4% win chance of the engine's best counts).
-
-Decided:
-* **Ship Stockfish with the game.** It is installed with the app, not as an optional download. **Deep analysis is the default** for Game Review. The built-in engine stays as the fallback.
-* **Retry your mistake is the centrepiece** (learning). Grow it into a full drill: retry every mistake of the game one after another, show the answer after two tries, and keep a "mistakes to practise" list from past games that comes back like puzzles.
+Done in 1.3.0: Stockfish ships with the game; deep review (depth 18) by default, saved with the game; the Review tab (accuracy, estimated game rating, opening name and book moves, evaluation graph, every class for both sides including Book and Miss, phases, key moments); a coach that explains every move from the engine's lines; "Explain" with your own AI model, given only the engine's facts; Retry your mistakes, one by one or as a drill (answer after two tries); Your mistakes in Puzzles, until solved twice in a row.
 
 Next:
-1. **Full review screen**: summary header (accuracy, an estimated game rating, a count table per side for every class), the evaluation graph larger, move list with marks, and the coach.
-2. **Deep review by default** with the bundled Stockfish (`/api/engine/go`, higher depth), with progress shown on the graph. Keep the evaluations with the game in the history so a review reopens instantly.
-3. **Coach**: template lines from the engine's numbers first (done). Then an optional "Explain with my AI model": the local model gets the FEN, the move played, the engine's best move, the line and the swing, and may only explain those facts, so it doesn't make things up. Cached per move.
-4. Opening name and a "Book" label for the first moves (small ECO list).
+1. Better "Great" and "Brilliant": the engine's second-best move (MultiPV) to spot only-moves.
+2. Mistake themes in the coach (fork, pin, hanging piece) from the refutation line.
+3. Review settings: depth, and reviewing games without a human player automatically.
 
 ## Puzzles
 

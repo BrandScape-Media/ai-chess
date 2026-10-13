@@ -165,7 +165,7 @@ body.blindfold .pc{opacity:0}
 
 /* ---------- panel ---------- */
 .panel{background:var(--panel);display:flex;flex-direction:column;height:100dvh;position:sticky;top:0;border-left:1px solid #ffffff08}
-.ptabs{display:grid;grid-template-columns:repeat(3,1fr);background:var(--rail)}
+.ptabs{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--rail)}
 .ptabs button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px 4px 9px;border:0;background:none;color:var(--muted);font-size:12px;font-weight:550;cursor:pointer;position:relative;transition:color .2s var(--ease),background .2s var(--ease)}
 .ptabs button .ic svg{width:20px;height:20px}
 .ptabs button:hover{color:var(--text);background:#ffffff08}
@@ -580,25 +580,97 @@ input.switch.sm:checked::after{transform:translateX(12px)}
 .playerpop .pc-btns svg{width:16px;height:16px}
 .grpbody .swlist{background:var(--panel3);max-width:none}
 .grpbody>.swatches,.grpbody>.pieceSets{padding:4px 6px 6px}
-/* game review panel */
-#review{margin:10px 12px 0;display:flex;flex-direction:column;gap:8px}
-#review .rv-acc{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-#review .rv-a{display:flex;align-items:center;gap:6px;background:var(--panel2);border-radius:var(--r-ctl);padding:6px 9px;font-size:12.5px;min-width:0}
-#review .rv-a span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
-#review .rv-a b{font:650 15px/1 var(--mono)}
-#review .rv-a .dot{width:10px;height:10px;border-radius:50%;flex:none;border:1px solid #0006}
-#review .rv-a .dot.w{background:#efe9de}
-#review .rv-a .dot.b{background:#2a2826;border-color:#ffffff30}
-#review .rv-graph{height:56px;border-radius:var(--r-ctl);overflow:hidden;cursor:pointer}
-#review .rv-graph svg{width:100%;height:100%;display:block}
-#review .rv-graph .bk{fill:#2a2826}
-#review .rv-graph .wt{fill:#e9e2d4}
-#review .rv-graph .mid{stroke:#8e887f;stroke-width:.6;stroke-dasharray:3 3;vector-effect:non-scaling-stroke}
-#review .rv-graph .cur{stroke:var(--accent);stroke-width:2;vector-effect:non-scaling-stroke}
-#review .rv-nav{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:12.5px;color:var(--muted)}
-#review .rv-coach{display:grid;grid-template-columns:34px 1fr;gap:8px;align-items:start;background:var(--panel2);border-radius:var(--r-ctl);padding:8px 10px}
-#review .rv-coach img{width:34px;height:34px;object-fit:contain}
-#review .rv-coach .say{margin:0;font-size:13px;line-height:1.4;overflow-wrap:anywhere}
-#review .rv-btns{grid-column:1/-1;display:flex;gap:8px}
-#review .rv-btns button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:6px}
-#review .rv-btns svg{width:15px;height:15px}
+/* ---------- Game Review tab ---------- */
+.rv{flex:1;min-height:0;overflow:auto;padding:14px 14px 16px;display:flex;flex-direction:column;gap:12px;scrollbar-width:thin}
+.rv-head{position:relative;display:flex;align-items:center;gap:10px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.rv-head h2{margin:0;font-size:16px;font-weight:700;letter-spacing:-.015em;margin-right:auto}
+.rv-eng{font:500 11.5px/1 var(--mono);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.rv-eng.run{color:var(--text)}
+.rv-head .ib.rv-deeper{min-width:30px;height:28px;padding:0 6px;background:transparent;color:var(--muted)}
+.rv-head .ib.rv-deeper:hover{background:var(--panel3);color:var(--text)}
+.rv-prog{position:absolute;left:0;right:0;bottom:-1px;height:2px;background:linear-gradient(90deg,var(--accent) var(--p),transparent var(--p));transition:background .4s var(--ease)}
+/* the coach: a picture and what it says */
+.rv-coach{display:grid;grid-template-columns:44px minmax(0,1fr);gap:10px;align-items:start}
+.rv-coach>img{width:44px;height:44px;object-fit:contain;filter:drop-shadow(0 3px 6px #0007)}
+.rv-say{position:relative;background:var(--panel2);border-radius:var(--r-box);padding:10px 12px;box-shadow:inset 0 1px 0 #ffffff08;display:flex;flex-direction:column;gap:8px;min-width:0;animation:rvIn .35s var(--ease)}
+.rv-say::before{content:"";position:absolute;left:-5px;top:16px;width:10px;height:10px;background:var(--panel2);transform:rotate(45deg);border-radius:2px}
+.rv-say p{margin:0;font-size:13.5px;line-height:1.5;overflow-wrap:anywhere}
+.rv-say p.bad{color:#f0a497}
+.rv-open{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12.5px!important}
+.rv-open .ic svg{width:14px;height:14px;color:#a88b6a}
+.rv-verdict{display:flex;align-items:center;gap:8px;min-width:0}
+.rv-verdict b{font-weight:700;font-size:14.5px;letter-spacing:-.01em;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rv-ev{margin-left:auto;font:600 12px/1 var(--mono);padding:4px 6px;border-radius:4px;flex:none}
+.rv-ev.w{background:#efe9de;color:#1b1916}
+.rv-ev.b{background:#0f0e0d;color:#efe9de;box-shadow:inset 0 0 0 1px #ffffff1a}
+.rv-side{width:22px;height:22px;flex:none;filter:drop-shadow(0 1px 2px #0008)}
+.rv-step{font-size:11.5px;color:var(--muted);font-weight:600;letter-spacing:.01em}
+.rv-btns{display:flex;flex-wrap:wrap;gap:6px}
+.rv-btns button{flex:1 1 auto}
+.rv-btns svg,.rv-actions svg{width:16px;height:16px}
+.rv-ai{border-left:2px solid var(--line2);padding:2px 0 2px 10px;display:flex;flex-direction:column;gap:3px;animation:rvIn .35s var(--ease)}
+.rv-ai small{display:flex;align-items:center;gap:5px;color:var(--muted);font-size:11.5px}
+.rv-ai small .ic svg{width:12px;height:12px}
+.rv-ai.busy p{color:var(--muted)}
+.rv-ai.err p{color:#f0a497}
+/* class marks: a coloured disc with the icon or the ?!/!! */
+.rv-b{width:20px;height:20px;border-radius:50%;display:inline-grid;place-items:center;color:#fff;font:800 10.5px/1 var(--sans);letter-spacing:-.04em;flex:none;box-shadow:0 1px 2px #0006}
+.rv-b svg{width:12px;height:12px}
+.rv-b.g3{font-size:8.5px}
+.rv-b.sm{width:18px;height:18px}
+.rv-b.none{background:none;box-shadow:none;color:var(--faint)}
+/* the players and their accuracy */
+.rv-players{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.rv-pl{display:grid;grid-template-columns:34px minmax(0,1fr);grid-template-rows:auto auto;column-gap:8px;row-gap:6px;align-items:center;background:var(--panel2);border-radius:var(--r-box);padding:10px;box-shadow:inset 0 1px 0 #ffffff08;min-width:0}
+.rv-pl .avatar{width:34px;height:34px;border-radius:8px}
+.rv-pl .who{display:flex;flex-direction:column;min-width:0}
+.rv-pl .nm{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rv-pl .who small{color:var(--faint);font-size:11px}
+.rv-pl .acc{grid-column:1/-1;font:600 26px/1 var(--mono);letter-spacing:-.03em}
+.rv-pl .gr{grid-column:1/-1;color:var(--muted);font-size:11.5px;margin-top:-2px}
+.rv-pl.me{box-shadow:inset 0 0 0 1px var(--line2),inset 0 1px 0 #ffffff0c;background:var(--panel3)}
+/* the evaluation graph */
+.rv-graph{position:relative;border-radius:var(--r-ctl);overflow:hidden;cursor:pointer;background:#2a2826;flex:none;box-shadow:inset 0 0 0 1px #ffffff0a}
+.rv-graph svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+.rv-graph .wt{fill:#e9e2d4}
+.rv-graph .mid{stroke:#8e887f;stroke-width:1;stroke-dasharray:3 3;vector-effect:non-scaling-stroke;opacity:.7}
+.rv-graph .cur{stroke:#6a9fd8;stroke-width:2;vector-effect:non-scaling-stroke}
+.rv-graph.enter svg:first-child{animation:rvDraw .9s var(--ease) both}
+.rv-graph.enter .dots{animation:rvIn .5s .55s var(--ease) both}
+.rv-graph:hover{box-shadow:inset 0 0 0 1px #ffffff26}
+/* the class table: White's count, the mark, Black's count */
+.rv-table{display:grid;grid-template-columns:minmax(0,1fr) 40px 22px 40px;row-gap:5px;column-gap:6px;align-items:center;background:var(--panel2);border-radius:var(--r-box);padding:10px 12px;box-shadow:inset 0 1px 0 #ffffff08}
+.rv-table .nm{font-size:13px;font-weight:600}
+.rv-table .nm.ph{color:var(--muted);font-weight:550}
+.rv-table .n{text-align:center;font:600 13px/1 var(--mono);display:flex;justify-content:center}
+.rv-table .n.z{color:var(--faint);font-weight:500}
+.rv-table .sep{grid-column:1/-1;height:1px;background:var(--line);margin:4px 0}
+.rv-actions{display:flex;flex-direction:column;gap:6px}
+.rv-actions button{width:100%;padding:10px 12px!important}
+/* the move view */
+.rv-moves{flex:1;min-height:110px;overflow:auto;display:grid;grid-template-columns:34px 1fr 1fr;align-content:start;gap:1px 2px;background:var(--panel2);border-radius:var(--r-box);padding:6px;scrollbar-width:thin}
+.rv-moves .n{color:var(--faint);font-size:12px;text-align:right;padding:5px 6px 0 0;font-variant-numeric:tabular-nums}
+.panel .rv-moves button.m{justify-content:flex-start;gap:4px;padding:4px 7px;background:none;font-weight:550;font-size:13px;border-radius:4px;min-width:0}
+.panel .rv-moves button.m span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.panel .rv-moves button.m:hover{background:#ffffff0e;filter:none}
+.panel .rv-moves button.m.cur{background:#e9e2d424;color:#fff}
+.rv-moves .m i{font-style:normal;font-weight:800;font-size:11.5px;display:inline-grid;place-items:center;flex:none}
+.rv-moves .m i svg{width:12px;height:12px}
+.rv-moves .m.e{color:var(--faint);padding:4px 7px}
+.rv-nav{display:flex;gap:5px}
+.rv-nav .ib{flex:1;height:36px;min-width:0;padding:0 4px}
+.rv-nav .ib.key{flex:1.3;display:inline-flex;gap:1px;align-items:center;justify-content:center}
+.rv-nav .ib.key>svg{width:12px;height:12px;color:#e6c650}
+.rv-nav .gap{width:4px;flex:none}
+/* waiting and empty states */
+.rv-skel{display:flex;flex-direction:column;gap:12px}
+.sk{background:linear-gradient(100deg,var(--panel2) 30%,#2d2b28 50%,var(--panel2) 70%) 0 0/300% 100%;animation:rvShimmer 1.4s linear infinite;border-radius:var(--r-box)}
+.rv-pl.sk{height:96px;box-shadow:none}
+.rv-graph.sk{box-shadow:none}
+.rv-empty{margin:auto 0;display:flex;flex-direction:column;align-items:center;text-align:center;gap:12px;padding:24px 10px}
+.rv-empty img{width:76px;height:76px;object-fit:contain;filter:drop-shadow(0 6px 12px #0008)}
+.rv-empty p{margin:0;color:var(--muted);font-size:13.5px;max-width:30ch;line-height:1.5}
+.rv-empty button svg{width:16px;height:16px}
+@keyframes rvIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes rvDraw{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0 0 0 0)}}
+@keyframes rvShimmer{to{background-position:-300% 0}}

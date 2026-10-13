@@ -69,10 +69,11 @@ export function openSettings(which) {
 $('settings').addEventListener('close', () => { clearInterval(pollT); hooks.render && hooks.render(); });
 $('settings').addEventListener('click', e => { if (e.target === $('settings')) $('settings').close(); });
 
-function check(label, get, set, title) {
-  const i = el('input', {type: 'checkbox'}); i.checked = !!get();
+/* a setting with an on/off switch; the explanation shows on hover */
+function toggle(name, get, set, tip) {
+  const i = el('input', {type: 'checkbox', class: 'switch', 'aria-label': name}); i.checked = !!get();
   i.onchange = () => { set(i.checked); saveSettings(); };
-  return el('label', {class: 'chk', title}, i, ' ' + label);
+  return el('label', {class: 'swl', title: tip || ''}, el('span', {}, name), i);
 }
 
 /* ---------- appearance ---------- */
@@ -127,12 +128,13 @@ function lookTab(sec) {
   };
   sec.append(el('div', {class: 'row', style: 'margin-top:10px'}, el('span', {class: 'hint'}, 'Your own set: pick 12 images named wK, wQ, wR, wB, wN, wP, bK, bQ, bR, bB, bN, bP (.svg/.png)'), up));
   sec.append(el('h4', {}, 'Board options'),
-    el('div', {class: 'grid2'},
-      el('label', {}, 'Coordinates'), check('show a-h and 1-8 on the board', () => a.coords !== false, v => { a.coords = v; applyAppearance(a); }),
-      el('label', {}, 'Move hints'), check('dots on the squares a piece can go to', () => a.dots !== false, v => { a.dots = v; applyAppearance(a); }),
-      el('label', {}, 'Animation'), check('slide pieces when they move', () => a.animate !== false, v => { a.animate = v; applyAppearance(a); }),
-      el('label', {}, 'Premoves'), check('queue your next move while the computer thinks (right-click cancels)', () => a.premoves !== false, v => { a.premoves = v; }),
-      el('label', {}, 'Sound'), check('move and capture sounds', () => a.sound !== false, v => { a.sound = v; })));
+    el('div', {class: 'swlist'},
+      toggle('Coordinates', () => a.coords !== false, v => { a.coords = v; applyAppearance(a); }, 'Show a-h and 1-8 on the board'),
+      toggle('Move hints', () => a.dots !== false, v => { a.dots = v; applyAppearance(a); }, 'Dots on the squares a piece can go to'),
+      toggle('Animation', () => a.animate !== false, v => { a.animate = v; applyAppearance(a); }, 'Slide pieces when they move'),
+      toggle('Premoves', () => a.premoves !== false, v => { a.premoves = v; }, 'Queue moves while the computer thinks (right-click cancels them)'),
+      toggle('Sound', () => a.sound !== false, v => { a.sound = v; }, 'Move and capture sounds'),
+      toggle('Confetti', () => a.confetti !== false, v => { a.confetti = v; }, 'A little celebration when you win')));
 }
 
 /* ---------- AI providers ---------- */
@@ -160,19 +162,29 @@ function aiTab(sec) {
     c.append(status);
     return c;
   };
-  sec.append(el('h4', {}, 'Local apps'), ...local.map(card), el('h4', {}, 'Cloud'), ...cloud.map(card));
-  sec.append(el('h4', {}, 'Custom providers'), ...custom.map(card));
   const n = el('input', {type: 'text', placeholder: 'Name (e.g. My GPU box)'}), u = el('input', {type: 'url', placeholder: 'http://192.168.1.20:8080/v1', spellcheck: 'false'});
   const k = el('input', {type: 'password', placeholder: 'API key (optional)', autocomplete: 'off'});
   const kind = el('select', {}, el('option', {value: 'openai'}, 'OpenAI-compatible'), el('option', {value: 'anthropic'}, 'Anthropic API'));
-  sec.append(el('div', {class: 'card'}, el('span', {class: 't'}, 'Add a custom provider'),
+  const addCard = el('div', {class: 'card'}, el('span', {class: 't'}, 'Add a custom provider'),
     el('div', {class: 'grid2'}, el('label', {}, 'Name'), n, el('label', {}, 'URL'), u, el('label', {}, 'API type'), kind, el('label', {}, 'API key'), k),
     el('div', {class: 'row'}, el('button', {class: 'primary', onclick: async () => {
       if (!u.value.trim()) { toast('Enter the URL'); return; }
       const id = 'custom-' + Date.now().toString(36);
       SET.providers.push({id, name: n.value.trim() || u.value.trim(), base: u.value.trim(), kind: kind.value, custom: true, _key: k.value.trim()});
+      openGroups.add('custom');
       await saveSettings(true); openSettings();
-    }}, 'Add provider'))));
+    }}, 'Add provider')));
+  sec.append(group('local', 'Local apps', `${local.length} apps on this computer`, local.map(card)),
+    group('cloud', 'Cloud', cloud.some(p => p.keySet) ? `${cloud.filter(p => p.keySet).length} of ${cloud.length} with a key` : `${cloud.length} services, need an API key`, cloud.map(card)),
+    group('custom', 'Custom providers', custom.length ? `${custom.length} added` : 'Any OpenAI-compatible or Anthropic API', [...custom.map(card), addCard]));
+}
+/* collapsible group of cards; remembers which ones are open */
+const openGroups = new Set(['local']);
+function group(key, title, sub, kids) {
+  const d = el('details', {class: 'grp'}, el('summary', {}, el('span', {class: 'chev', html: ICONS['caret-down']}), el('b', {}, title), el('small', {}, sub)), el('div', {class: 'grpbody'}, ...kids));
+  d.open = openGroups.has(key);
+  d.ontoggle = () => { if (d.open) openGroups.add(key); else openGroups.delete(key); };
+  return d;
 }
 
 /* ---------- engines ---------- */
@@ -198,7 +210,8 @@ async function enginesTab(sec) {
       e.kind === 'maia' ? el('span', {class: 's'}, 'Ratings: ' + Object.keys(e.weights || {}).join(', ')) : null));
     }
     let running = false;
-    const groups = [['top', 'Get engines: the strongest'], ['veteran', 'Veterans and lesser-known engines']];
+    const addPath = el('input', {type: 'text', placeholder: 'C:\\Engines\\myengine.exe', spellcheck: 'false', style: 'flex:1'});
+    const groups = [['top', 'Get engines'], ['veteran', 'Veterans and lesser-known engines']];
     for (const [g, head] of groups) {
     box.append(el('h4', {}, head));
     for (const c of r.catalog.filter(x => (x.group || 'top') === g)) {
@@ -215,13 +228,14 @@ async function enginesTab(sec) {
       } else if (job && job.state === 'error') card.append(el('span', {class: 'err'}, job.step));
       box.append(card);
     }
+    if (g === 'top') for (const u of r.unavailable)   /* commercial engines: no download, but you can add your own copy */
+      box.append(el('div', {class: 'card'}, el('div', {class: 'row'}, el('span', {class: 't'}, u.name), el('span', {class: 'tag'}, 'Commercial'), el('span', {class: 'grow'}),
+        el('button', {onclick: () => { addPath.scrollIntoView({behavior: 'smooth', block: 'center'}); addPath.focus(); }}, 'Add your copy')), el('span', {class: 's'}, u.about)));
     }
     box.append(el('h4', {}, 'Built into the game (no download)'),
       el('div', {class: 'card'}, el('span', {class: 't'}, 'Turochamp (1948)'), el('span', {class: 's'}, 'The first chess program ever written, by Alan Turing and David Champernowne, before any computer could run it. Turing played it by hand in 1952. Recreated from their rules: it looks at its move and your reply, then follows the captures until things calm down.')),
       el('div', {class: 'card'}, el('span', {class: 't'}, 'Random mover'), el('span', {class: 's'}, 'Plays any legal move. Good for testing chaos mode, or your patience.')));
-    box.append(el('h4', {}, 'Not available'));
-    for (const u of r.unavailable) box.append(el('div', {class: 'card'}, el('span', {class: 't'}, u.name), el('span', {class: 's'}, u.about)));
-    const path = el('input', {type: 'text', placeholder: 'C:\\Engines\\myengine.exe', spellcheck: 'false', style: 'flex:1'});
+    const path = addPath;
     const name = el('input', {type: 'text', placeholder: 'Name (optional)'});
     const msg = el('span', {class: 's'});
     box.append(el('h4', {}, 'Add your own UCI engine'), el('div', {class: 'card'},
@@ -244,9 +258,9 @@ let openPersona = null;   /* a freshly added personality opens expanded */
 function chatTab(sec) {
   const c = SET.chat;
   sec.append(el('h3', {}, 'Chat & personalities'),
-    el('div', {class: 'grid2'},
-      el('label', {}, 'Chat'), check('opponents chat with you (AI models in character, engines with canned lines)', () => c.enabled, v => { c.enabled = v; S.chatOn = v; hooks.render(); }),
-      el('label', {}, 'Engine remarks'), check('engines sometimes comment on moves and captures', () => c.engineTalk !== false, v => { c.engineTalk = v; })),
+    el('div', {class: 'swlist'},
+      toggle('Chat', () => c.enabled, v => { c.enabled = v; S.chatOn = v; hooks.render(); }, 'Opponents chat with you: AI models in character, engines with canned lines'),
+      toggle('Engine remarks', () => c.engineTalk !== false, v => { c.engineTalk = v; }, 'Engines sometimes comment on moves and captures')),
     el('p', {class: 'hint'}, 'Every computer opponent gets a personality at the start of a game. It is never shown during play: it just changes how they talk.'));
   const opts = sel => [el('option', {value: 'random'}, 'Random each game'), ...SET.personalities.map(p => el('option', {value: p.id, selected: sel === p.id}, p.name))];
   const def = el('select', {}, ...opts(SET.defaultPersonality)); def.value = SET.defaultPersonality;
@@ -267,7 +281,7 @@ function chatTab(sec) {
   for (const p of SET.personalities) {
     const name = el('input', {type: 'text', value: p.name, style: 'flex:1'}), prompt = el('textarea', {}, p.prompt);
     const bot = el('select', {}, ...BOT_STYLES.map(b => el('option', {value: b, selected: p.bot === b}, b)));
-    const on = el('input', {type: 'checkbox', title: 'In the random pool'}); on.checked = p.on !== false;
+    const on = el('input', {type: 'checkbox', class: 'switch sm', title: 'In the random pool: picked when opponents get a random personality', 'aria-label': 'In the random pool'}); on.checked = p.on !== false;
     const title = el('span', {class: 'pname'}, p.name), sum = el('span', {class: 'psum'}, p.prompt);
     name.onchange = () => { p.name = name.value; title.textContent = p.name; saveSettings(); };
     prompt.onchange = () => { p.prompt = prompt.value; sum.textContent = p.prompt; saveSettings(); };

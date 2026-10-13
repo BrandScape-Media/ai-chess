@@ -1,7 +1,7 @@
 /* AI Chess: page wiring, setup panel, board, game flow, saved game. GPL-3.0-or-later */
 import * as C from './core.js';
 import {$, api, toast, el, esc, relayOK} from './util.js';
-import {S, SIDE, VARIANT_NAME, hooks, isAI, timed, humanCount, rulesOff, seatName, shortModel, ascii, histText, remember} from './state.js';
+import {S, SIDE, VARIANT_NAME, VARIANT_UCI, hooks, isAI, timed, humanCount, rulesOff, seatName, shortModel, ascii, histText, remember} from './state.js';
 import {applyAppearance, setPiece, preloadCanvasPieces, isImageSet, glyph} from './theme.js';
 import {SET, loadSettings, saveSettings, openSettings, refreshEngines, onSettings} from './settings.js';
 import {askEngine, askLLM, cancelThinking, resolveIllegal, arrowGeom, sqXY, ARROW_COL, bestMoveHint} from './players.js';
@@ -40,12 +40,12 @@ const NODES = [[1, '1 node (pure instinct)'], [10, '10 nodes'], [100, '100 nodes
 const pendingModel = ['', ''];
 function seatHTML(i) {
   const agent = S.config.agent ? `<option value="agent">${esc(S.config.agent)} (agent)</option>` : '';
-  const agentBtn = S.config.agent ? `<button type="button" data-v="agent" title="${esc(S.config.agent)} (agent)">${icon('sparkle')}<span>Agent</span></button>` : '';
+  const agentBtn = S.config.agent ? `<button type="button" data-v="agent" title="${esc(S.config.agent)} (agent)"><img src="avatars/logo.webp" alt=""><span>Agent</span></button>` : '';
   return `<div class="seat-h"><img class="sw" src="pieces/cburnett/${i ? 'b' : 'w'}K.svg" alt=""><b>${SIDE[i]}</b></div>
     <div class="seg types" id="seg${i}" role="radiogroup" aria-label="${SIDE[i]} player">
-      <button type="button" data-v="human" title="A person at this computer">${icon('user')}<span>Human</span></button>
-      <button type="button" data-v="engine" title="A chess engine">${icon('cpu')}<span>Engine</span></button>
-      <button type="button" data-v="llm" title="A local or cloud AI model">${icon('robot')}<span>AI model</span></button>${agentBtn}
+      <button type="button" data-v="human" title="A person at this computer"><img src="avatars/human.webp" alt=""><span>Human</span></button>
+      <button type="button" data-v="engine" title="A chess engine"><img src="avatars/builtin.webp" alt=""><span>Engine</span></button>
+      <button type="button" data-v="llm" title="A local or cloud AI model"><img src="avatars/llm.webp" alt=""><span>AI model</span></button>${agentBtn}
     </div>
     <select id="type${i}" hidden><option value="human">Human</option><option value="engine">Chess engine</option><option value="llm">Local AI model</option>${agent}</select>
   <div class="set">
@@ -161,6 +161,97 @@ function sliderRow(r, P, onSet) {
   range.onchange = () => onSet(r.values[+range.value]);
   return el('label', {class: 'spr'}, el('span', {class: 'l'}, r.label, r.hint ? el('small', {}, ' ' + r.hint) : null), val, range);
 }
+/* ================= Play hub: bots, variants, playground ================= */
+/* bots and variants are "you against one opponent" with a colour choice; the playground is the full setup.
+   Choices made in bots / variants mode wait for the next game instead of changing the one being played. */
+const MODES = {bots: 'Play bots', variants: 'Play variants', playground: 'Playground'};
+const VARIANTS = [
+  ['960', 'Chess960', 'The back rank is shuffled. Castling still works.', 'shuffle', {variant: 0, start: '960'}],
+  ['koth', 'King of the Hill', 'Walk your king to one of the four centre squares to win.', 'crown-fill', {variant: 1, start: 'std'}],
+  ['3check', 'Three-check', 'Give check three times to win.', 'target', {variant: 2, start: 'std'}],
+  ['trans', 'Transcendental', 'Each side gets its own shuffled back rank, no castling.', 'arrows-down-up', {variant: 0, start: 'trans'}],
+  ['fen', 'Custom position', 'Start from any position you paste (FEN).', 'list-dashes', {variant: 0, start: 'fen'}],
+];
+let mode = 'hub';
+const gameOn = () => S.pos && S.moves.length > 0 && !S.over && !S.replay;
+function showMode(m) {
+  mode = MODES[m] ? m : 'hub';
+  const tab = $('tab-new');
+  tab.dataset.mode = mode;
+  $('modeTitle').textContent = MODES[mode] || '';
+  label($('bNew'), 'play', mode === 'playground' ? 'Start game' : 'Play');
+  if (mode === 'bots' || mode === 'variants') {
+    const ts = [0, 1].map(i => $('type' + i).value), hum = ts.filter(t => t === 'human').length;
+    if (hum !== 1) {   /* you against one opponent */
+      if (gameOn()) S.setupDirty = true;
+      const opp = ts[1] !== 'human' ? readSeat(1) : ts[0] !== 'human' ? readSeat(0) : {type: 'engine', engine: 'builtin', level: 2};
+      writeSeat(0, {...readSeat(0), type: 'human'}); writeSeat(1, opp); seatVis(0); seatVis(1);
+      if (!S.setupDirty) { applySeat(0); applySeat(1); }
+    }
+    if (mode === 'bots') { $('variant').value = '0'; $('start').value = 'std'; startVis(); }
+    if (mode === 'variants' && $('variant').value === '0' && $('start').value === 'std') { $('start').value = '960'; startVis(); }
+    saveSetup();
+  }
+  renderModeLists();
+  $('tab-new').querySelector('.setupBody').scrollTop = 0;
+}
+const oppSide = () => { const i = [0, 1].findIndex(k => $('type' + k).value === 'human'); return i < 0 ? 1 : i ^ 1; };
+/* opponents: built-in engines, the historic bots, installed engines, your AI model */
+function botEntries() {
+  const out = [{key: 'builtin', type: 'engine', engine: 'builtin', name: 'Built-in engine', short: 'Built-in', sub: 'Five levels, about 400 to 2200'}];
+  for (const [id, b] of Object.entries(BOTS)) out.push({key: id, type: 'engine', engine: id, name: b.name, short: b.name.replace(/\s*\(.*\)$/, '').replace(' mover', ''), sub: 'About ' + b.elo + ', ' + b.about.split(',')[0]});
+  for (const e of S.engineList || []) {
+    const r = e.kind === 'elo' && e.elo ? `${e.elo[0]} to ${e.elo[1]} Elo or full` : e.kind === 'maia' ? 'Plays like a human, 1100 to 1900' : `About ${FULL_ELO[e.catalog || e.id] || 3000}`;
+    out.push({key: e.id, type: 'engine', engine: e.id, name: e.name.replace(/\s+(dev|v?\d[\w.\-]*)$/i, ''), short: e.kind === 'maia' ? 'Maia' : e.name.split(/\s+/)[0], sub: r, eng: e});
+  }
+  out.push({key: '__llm', type: 'llm', name: 'Your AI model', short: 'AI model', sub: 'A local or cloud model, with a personality'});
+  return out;
+}
+function playsVariant(entry) {
+  if (!entry.eng) return true;
+  const v = VARIANT_UCI[+$('variant').value], st = $('start').value;
+  return (entry.eng.variants || ['chess']).includes(v) && (st !== '960' || entry.eng.chess960);
+}
+function renderModeLists() {
+  if (mode !== 'bots' && mode !== 'variants') return;
+  const i = oppSide(), c = readSeat(i), box = $('botList');
+  const cur = c.type === 'llm' ? '__llm' : c.type === 'engine' ? (c.engine || 'builtin') : '';
+  box.innerHTML = '';
+  for (const b of botEntries()) {
+    const P = b.type === 'llm' ? {type: 'llm', model: c.model} : {type: 'engine', engine: b.engine};
+    const av = el('span'); paintAvatar(av, P, 'avatar');
+    const ok = mode !== 'variants' || playsVariant(b);
+    const btn = el('button', {type: 'button', class: 'bot' + (cur === b.key ? ' on' : '') + (ok ? '' : ' off'), role: 'radio', 'aria-checked': cur === b.key,
+      title: b.name + ': ' + (ok ? b.sub : 'plays standard chess only; the built-in engine takes over in this variant'), onclick: () => pickOpponent(b)},
+    av, el('span', {class: 'bt'}, el('b', {}, b.short || b.name), el('small', {}, ok ? b.sub : 'Standard chess only')));
+    box.append(btn);
+  }
+  box.append(el('button', {type: 'button', class: 'bot more', title: 'Get more engines: Stockfish, Leela, Maia and more, one click', onclick: () => openSettings('engines')}, el('span', {class: 'avatar more', html: ICONS.plus}), el('span', {class: 'bt'}, el('b', {}, 'Get more'))));
+  if (mode === 'variants') {
+    const vb = $('varList'); vb.innerHTML = '';
+    const vcur = VARIANTS.find(v => +$('variant').value === v[4].variant && $('start').value === v[4].start)?.[0];
+    for (const [key, name, sub, ic, set] of VARIANTS) {
+      vb.append(el('button', {type: 'button', class: 'var' + (vcur === key ? ' on' : ''), role: 'radio', 'aria-checked': vcur === key, onclick: () => {
+        $('variant').value = set.variant; $('start').value = set.start; startVis(); saveSetup(); renderModeLists();
+      }}, el('span', {class: 'ic', html: ICONS[ic] || ''}), el('span', {class: 'bt'}, el('b', {}, name), el('small', {}, sub))));
+    }
+    $('fenIn2').hidden = vcur !== 'fen'; $('fenIn2').value = $('fenIn').value;
+  }
+}
+function pickOpponent(b) {
+  const i = oppSide();
+  if (gameOn()) S.setupDirty = true;   /* for the next game */
+  const c = readSeat(i);
+  writeSeat(i, b.type === 'llm' ? {...c, type: 'llm'} : {...c, type: 'engine', engine: b.engine});
+  seatVis(i); saveSetup();
+  if (!S.setupDirty) applySeat(i);
+  if (b.type === 'llm') loadModels(i);
+  renderModeLists();
+}
+for (const b of document.querySelectorAll('#modeHub .mode')) b.onclick = () => showMode(b.dataset.mode);
+$('bModeBack').onclick = () => showMode('hub');
+$('fenIn2').oninput = () => { $('fenIn').value = $('fenIn2').value; saveSetup(); };
+
 /* "You vs Stockfish (1500)" at the top of the setup tab */
 function renderMatchup() {
   const box = $('matchup'); if (!box || !$('type1')) return;
@@ -180,7 +271,8 @@ function renderMatchup() {
 /* your colour: White / Random / Black (when exactly one side is human), otherwise just a swap button */
 function renderSidePick() {
   const ts = [0, 1].map(i => $('type' + i).value), one = ts.filter(t => t === 'human').length === 1;
-  $('colorSeg').hidden = !one;
+  $('colorSeg').hidden = !one || mode === 'playground';
+  for (const i of [0, 1]) $('seat' + i).classList.toggle('me', one && ts[i] === 'human');
   const me = ts.indexOf('human'), c = $('rnd').checked ? 'r' : me === 1 ? 'b' : 'w';
   for (const b of $('colorSeg').querySelectorAll('button')) { b.classList.toggle('on', b.dataset.c === c); b.setAttribute('aria-checked', b.dataset.c === c); }
 }
@@ -1024,7 +1116,7 @@ function drawAssist() {
   const line = $('eline');
   line.hidden = !A.lines;
   if (A.lines) {
-    if (!r) line.textContent = S.an === null && (A.lines) ? 'analysing…' : '';
+    if (!r) line.textContent = S.over && ply === S.moves.length ? 'Game over' : 'analysing…';
     else {
       const q = posAt(ply), sans = [];
       const pv = r.pv && r.pv.length ? r.pv : [];
@@ -1056,6 +1148,34 @@ function renderResult() {
   card.querySelector('.ic').innerHTML = ICONS[ic] || '';
   box.append(card);
   box.hidden = false;
+  if (title === 'You won' && !S.replay) confetti();
+}
+
+/* a short burst of confetti over the board when you win (skipped with reduced motion or when switched off) */
+function confetti() {
+  if (SET.appearance.confetti === false || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const wrap = document.querySelector('.boardwrap'), cv = el('canvas', {class: 'confetti'});
+  wrap.append(cv);
+  const W = cv.width = wrap.clientWidth * devicePixelRatio, H = cv.height = wrap.clientHeight * devicePixelRatio, g = cv.getContext('2d');
+  const cols = ['#e9e2d4', '#8fbf73', '#e3a04a', '#e6c650', '#d98a7a', '#8fa8c0'], s = devicePixelRatio;
+  /* one burst from behind the result card, flying outward in every direction (a little upward bias) */
+  const ps = Array.from({length: 160}, (_, i) => {
+    const a = Math.random() * Math.PI * 2, v = (7 + Math.random() * 11) * s;
+    return {x: W / 2, y: H * .45, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 5 * s,
+      w: (5 + Math.random() * 5) * s, h: (8 + Math.random() * 8) * s, r: Math.random() * 6, vr: (Math.random() - .5) * .35, c: cols[i % cols.length], t: Math.random() * 10};
+  });
+  const t0 = performance.now();
+  const step = now => {
+    const dt = Math.min(2, (now - (step.last || now)) / 16.7); step.last = now;
+    const age = now - t0; g.clearRect(0, 0, W, H);
+    for (const p of ps) {
+      p.vy += .32 * s * dt; p.vx *= .985; p.vy *= .99; p.x += p.vx * dt; p.y += p.vy * dt; p.r += p.vr * dt; p.t += .12 * dt;
+      g.save(); g.translate(p.x, p.y); g.rotate(p.r); g.scale(1, Math.cos(p.t)); g.globalAlpha = Math.max(0, 1 - Math.max(0, age - 1800) / 900);
+      g.fillStyle = p.c; g.fillRect(-p.w / 2, -p.h / 2, p.w, p.h); g.restore();
+    }
+    if (age < 2700) requestAnimationFrame(step); else cv.remove();
+  };
+  requestAnimationFrame(step);
 }
 
 /* icon + text button label */
@@ -1307,11 +1427,12 @@ window.addEventListener('keydown', e => {
 onSettings.changed = () => {
   S.chatOn = SET.chat.enabled !== false;
   for (const i of [0, 1]) { engineMenus(i); providerMenu(i); seatVis(i); }
+  renderModeLists();
   render();
 };
 
 /* ================= boot ================= */
-Object.assign(hooks, {play, render, afterMove, schedule, sync: () => syncRelay(), history: renderHistory});
+Object.assign(hooks, {play, render, afterMove, schedule, sync: () => syncRelay(), history: renderHistory, newTab: () => showMode('hub')});
 for (const e of document.querySelectorAll('[data-ic]')) e.insertAdjacentHTML('afterbegin', icon(e.dataset.ic));
 (async () => {
   if (relayOK) { try { S.config = await api('/api/config'); } catch (e) {} }
@@ -1320,7 +1441,7 @@ for (const e of document.querySelectorAll('[data-ic]')) e.insertAdjacentHTML('af
   preloadCanvasPieces();
   if (relayOK) { await refreshEngines(); if (!SHOT) await hello(); }
   buildSeat(0); buildSeat(1); buildTcPick(); buildAssist();
-  loadSetup();
+  loadSetup(); showMode('hub');
   S.peek = $('peek').checked;
   initChat();
   await Promise.all([0, 1].filter(i => $('type' + i).value === 'llm').map(i => loadModels(i)));

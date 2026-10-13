@@ -78,7 +78,27 @@
 
     <section class="tab setup" id="tab-new" hidden>
       <div class="setupBody">
+        <!-- the Play hub: pick what kind of game, like on chess sites -->
+        <div class="hub" id="modeHub">
+          <h2 class="hubh">Play</h2>
+          <button class="mode" type="button" data-mode="bots"><img src="avatars/mode-bots.webp" alt=""><span><b>Play bots</b><small>Engines and AI models, from beginner to world class</small></span><span class="ic" data-ic="caret-right"></span></button>
+          <button class="mode" type="button" data-mode="variants"><img src="avatars/mode-variants.webp" alt=""><span><b>Play variants</b><small>Chess960, King of the Hill, Three-check and more</small></span><span class="ic" data-ic="caret-right"></span></button>
+          <button class="mode" type="button" data-mode="playground"><img src="avatars/mode-playground.webp" alt=""><span><b>Playground</b><small>Anyone against anyone: AI against engine, a model against itself, two people</small></span><span class="ic" data-ic="caret-right"></span></button>
+        </div>
+
+        <div class="modehead"><button class="ib" type="button" id="bModeBack" title="Back to the game types" data-ic="caret-left"></button><b id="modeTitle"></b></div>
         <div class="matchup" id="matchup" aria-live="polite"></div>
+
+        <section class="sect only-var">
+          <h3 class="gh">Variant</h3>
+          <div class="varlist" id="varList" role="radiogroup" aria-label="Variant"></div>
+          <input id="fenIn2" type="text" spellcheck="false" placeholder="Paste a position (FEN)" hidden>
+        </section>
+
+        <section class="sect only-bv">
+          <h3 class="gh">Opponent</h3>
+          <div class="botlist" id="botList" role="radiogroup" aria-label="Opponent"></div>
+        </section>
 
         <div class="sidepick" id="sidePick">
           <span class="splbl">Play as</span>
@@ -100,7 +120,7 @@
           <div class="chips"><label class="chip wide" id="tcAIrow" title="Engines are always on the clock. A slow local model can lose on time in a fast game: switch this on to let AI models think as long as they like."><input type="checkbox" id="tcLLM"><span class="ic" data-ic="hourglass-medium"></span><span>AI models play without a clock</span></label></div>
         </section>
 
-        <section class="sect">
+        <section class="sect only-pg">
           <h3 class="gh">Game</h3>
           <div class="set">
             <label for="variant">Variant</label>
@@ -113,17 +133,17 @@
         </section>
 
         <section class="sect">
-          <h3 class="gh">While you play <small>also from the gear during a game</small></h3>
+          <h3 class="gh">Aids <small>also from the gear during a game</small></h3>
           <div class="chips" id="assistSw"></div>
         </section>
 
         <section class="sect">
           <h3 class="gh">House rules</h3>
-          <div class="chips">
-            <label class="chip" title="A Hint button shows the best move"><input type="checkbox" id="allowHints" checked><span class="ic" data-ic="lightbulb"></span><span>Hints</span></label>
-            <label class="chip" title="Take back your last move against the computer"><input type="checkbox" id="allowUndo" checked><span class="ic" data-ic="arrow-counter-clockwise"></span><span>Takebacks</span></label>
-            <label class="chip wide" title="The other side sees your arrows and circles, and is told you don't know it can. Bluff with your drawings."><input type="checkbox" id="peek"><span class="ic" data-ic="eye"></span><span>Opponent can peek at my arrows</span></label>
-            <label class="chip wide" title="Off: everybody plays by the rules. On: each side gets its own switch; illegal moves are played as they are (pieces may teleport, come back or appear) and nobody is told."><input type="checkbox" id="chaos"><span class="ic" data-ic="warning-diamond"></span><span>Allow illegal moves</span></label>
+          <div class="tiles">
+            <label class="tile" title="Hints: a button that shows the best move"><input type="checkbox" id="allowHints" checked><span class="ic" data-ic="lightbulb"></span><span>Hints</span></label>
+            <label class="tile" title="Takebacks: take back your last move against the computer"><input type="checkbox" id="allowUndo" checked><span class="ic" data-ic="arrow-counter-clockwise"></span><span>Takebacks</span></label>
+            <label class="tile" title="Peek: the other side sees your arrows and circles, and is told you don't know it can. Bluff with your drawings."><input type="checkbox" id="peek"><span class="ic" data-ic="eye"></span><span>Peek</span></label>
+            <label class="tile" title="Illegal moves: each side gets its own switch; illegal moves are played as they are (pieces may teleport, come back or appear) and nobody is told."><input type="checkbox" id="chaos"><span class="ic" data-ic="warning-diamond"></span><span>Illegal moves</span></label>
           </div>
         </section>
         <div class="hint" id="hint"></div>

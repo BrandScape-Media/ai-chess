@@ -17,6 +17,7 @@ export function initChat() {
 /* side panel tabs: play (moves + controls), new (game setup), chat */
 export function showTab(t) {
   if (t === 'chat' && !S.chatOn) t = 'play';
+  if (t === 'new' && tabNow !== 'new' && hooks.newTab) hooks.newTab();   /* coming from elsewhere: start at the Play hub */
   tabNow = t;
   for (const b of document.querySelectorAll('[data-tab]')) b.classList.toggle('on', b.dataset.tab === t);
   for (const id of ['play', 'new', 'chat', 'history']) $('tab-' + id).hidden = id !== t;

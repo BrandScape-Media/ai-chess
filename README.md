@@ -22,7 +22,7 @@ On Windows you can also double-click `AI Chess.bat`; on Linux/macOS run `./run.s
 
 ## Pick your opponent
 
-Each side (White and Black) can be **Human**, a **Chess engine** or a **Local AI model**, so any matchup works: you vs a model, a model vs Stockfish, two models against each other, or one model against itself.
+**Play bots** lets you pick an opponent from a gallery (engines, historic programs, your AI model) and choose White, Black or random. **Play variants** does the same for Chess960, King of the Hill, Three-check and more. In the **Playground**, each side (White and Black) can be **Human**, a **Chess engine** or a **Local AI model**, so any matchup works: you vs a model, a model vs Stockfish, two models against each other, or one model against itself.
 
 ### Local AI models: choose a backend
 

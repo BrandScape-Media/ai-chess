@@ -89,11 +89,9 @@ CATALOG = [
      "about": "A lesser-known hobby engine named after the star.",
      "assets": {"win-x64": ["Altair-windows-x86-64-v3.exe", "Altair-windows-x86-64-v2.exe", "Altair-windows-x86-64-v1.exe"]}},
 ]
+# engines that can't be downloaded here but are worth pointing to (shown among the downloads)
 NOT_AVAILABLE = [
-    {"name": "Deep Blue", "about": "IBM's 1997 machine ran on custom chips and was never released. Stockfish set to about 2850 Elo plays at its level."},
-    {"name": "AlphaZero", "about": "DeepMind never released it. Leela Chess Zero is the open-source reimplementation of the same idea."},
-    {"name": "Crafty, Fruit, GNU Chess", "about": "Classics without official GitHub downloads (Crafty also speaks only the older WinBoard protocol). If you have a UCI build, add it with 'Add engine'."},
-    {"name": "Komodo Dragon", "about": "Commercial. If you own it, add its .exe with 'Add engine'."},
+    {"name": "Komodo Dragon", "about": "A top commercial engine. If you own it, add its .exe under 'Add your own UCI engine' below."},
 ]
 
 

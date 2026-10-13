@@ -4,66 +4,115 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AI Chess</title>
+<meta name="description" content="Play chess against your local AI models, chess engines, or let them play each other.">
 <link rel="icon" href="favicon.svg">
+<link rel="preload" href="fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="app.css">
 <style id="pieceCss"></style>
 </head>
 <body>
-<div class="app">
-  <div class="left">
-    <div class="strip" id="stripTop"><span class="dot"></span><span class="name" id="nameTop"></span><span class="caps" id="capsTop"></span><span class="adv" id="advTop"></span></div>
-    <div id="board"></div>
-    <div class="strip" id="stripBot"><span class="dot"></span><span class="name" id="nameBot"></span><span class="caps" id="capsBot"></span><span class="adv" id="advBot"></span></div>
-  </div>
-  <aside class="side">
-    <header class="top"><h1>&#9822; AI Chess</h1><small id="modeTag"></small><button class="icon" id="bSettings" title="Settings">&#9881;</button></header>
-    <div id="status"></div>
-    <div id="einfo"></div>
-    <div id="bubble" hidden></div>
-    <div class="tabs"><button data-tab="moves" class="on">Moves</button><button data-tab="chat">Chat<span class="badge" id="chatBadge"></span></button></div>
-    <div id="moves"></div>
-    <div id="chat" hidden>
-      <div id="chatLog"></div>
-      <form id="chatForm" autocomplete="off"><input id="chatIn" type="text" maxlength="300" placeholder="Say something…"><button>Send</button></form>
+<div class="shell">
+  <nav class="rail" aria-label="Main">
+    <a class="brand" href="#" data-tab="play"><img src="pieces/cburnett/wN.svg" alt=""><span>AI Chess</span></a>
+    <button class="railbtn" data-tab="play" data-ic="play"><span class="lbl">Play</span></button>
+    <button class="railbtn" data-tab="new" data-ic="plus"><span class="lbl">New game</span></button>
+    <button class="railbtn" id="bSettings" data-ic="gear-six"><span class="lbl">Settings</span></button>
+    <span class="grow"></span>
+    <a class="railbtn small" href="https://github.com/BrandScape-Media/ai-chess" target="_blank" rel="noopener" data-ic="github-logo"><span class="lbl">GitHub</span></a>
+  </nav>
+
+  <main class="stage">
+    <div class="player" id="stripTop">
+      <div class="avatar" id="avTop"></div>
+      <div class="pinfo">
+        <div class="pline"><span class="name" id="nameTop"></span><span class="rating" id="ratingTop"></span><span class="flagbadge" id="badgeTop"></span></div>
+        <div class="pline sub"><span class="caps" id="capsTop"></span><span class="adv" id="advTop"></span></div>
+      </div>
+      <div class="clock" id="clockTop" hidden></div>
     </div>
-    <div class="row">
-      <button id="bUndo" title="Take back the last move (back to your turn)">Undo</button>
-      <button id="bFlip" title="Flip board (F)">Flip</button>
-      <button id="bResign">Resign</button>
-      <button id="bPause" hidden title="Pause / resume the computer players (P)">Pause</button>
-      <button id="bHint" hidden title="Show the best move (H)">&#128161; Hint</button>
+    <div class="boardwrap">
+      <div id="board"></div>
+      <div id="result" hidden></div>
     </div>
-    <div class="row nav">
-      <button id="bFirst" title="Home">&#9198;</button><button id="bPrev" title="Left arrow">&#9664;</button><button id="bNext" title="Right arrow">&#9654;</button><button id="bLast" title="End">&#9197;</button>
-      <span class="grow"></span>
-      <button id="bFen" title="Copy FEN">FEN</button><button id="bPgn" title="Copy PGN">PGN</button>
+    <div class="player" id="stripBot">
+      <div class="avatar" id="avBot"></div>
+      <div class="pinfo">
+        <div class="pline"><span class="name" id="nameBot"></span><span class="rating" id="ratingBot"></span><span class="flagbadge" id="badgeBot"></span></div>
+        <div class="pline sub"><span class="caps" id="capsBot"></span><span class="adv" id="advBot"></span></div>
+      </div>
+      <div class="clock" id="clockBot" hidden></div>
     </div>
-    <details class="setup" id="setup" open>
-      <summary>Game setup</summary>
+  </main>
+
+  <aside class="panel" aria-label="Game">
+    <div class="ptabs" role="tablist">
+      <button data-tab="play" class="on" data-ic="list-numbers">Moves</button>
+      <button data-tab="new" data-ic="plus">New game</button>
+      <button data-tab="chat" data-ic="chat-circle-text">Chat<span class="badge" id="chatBadge"></span></button>
+    </div>
+
+    <section class="tab" id="tab-play">
+      <div class="statusbar"><div id="status"></div><div id="einfo"></div></div>
+      <div id="bubble" hidden></div>
+      <div id="moves"></div>
+      <div class="navrow">
+        <button class="ib" id="bFirst" title="First move (Home)" data-ic="caret-double-left"></button>
+        <button class="ib" id="bPrev" title="Previous move (Left arrow)" data-ic="caret-left"></button>
+        <button class="ib" id="bNext" title="Next move (Right arrow)" data-ic="caret-right"></button>
+        <button class="ib" id="bLast" title="Last move (End)" data-ic="caret-double-right"></button>
+        <span class="gap"></span>
+        <button class="ib" id="bFlip" title="Flip the board (F)" data-ic="arrows-down-up"></button>
+        <button class="ib" id="bFen" title="Copy FEN" data-ic="copy"></button>
+        <button class="ib txt" id="bPgn" title="Copy PGN">PGN</button>
+      </div>
+      <div class="actions">
+        <button id="bHint" hidden title="Show the best move (H)" data-ic="lightbulb">Hint</button>
+        <button id="bUndo" title="Take back the last move" data-ic="arrow-counter-clockwise">Undo</button>
+        <button id="bPause" hidden title="Pause or resume the computer players (P)" data-ic="pause">Pause</button>
+        <button id="bResign" data-ic="flag">Resign</button>
+      </div>
+    </section>
+
+    <section class="tab setup" id="tab-new" hidden>
       <div class="setupBody">
-        <div class="set">
-          <label>Variant</label>
-          <select id="variant"><option value="0">Standard chess</option><option value="1">King of the Hill</option><option value="2">Three-check</option></select>
-          <label>Start</label>
-          <select id="start"><option value="std">Standard position</option><option value="960">Chess960 (Fischer Random)</option><option value="trans">Transcendental (each side shuffled)</option><option value="fen">Custom FEN…</option></select>
-          <label id="fenLabel">FEN</label>
-          <input id="fenIn" type="text" spellcheck="false" placeholder="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1">
-        </div>
-        <label class="chk" title="Off: everybody plays by the rules (illegal moves from AI players are bounced back to them). On: each side has its own switch; illegal moves just happen and nobody is told."><input type="checkbox" id="chaos"> Allow illegal moves (chaos mode)</label>
         <div class="seat" id="seat0"></div>
+        <div class="vs"><button class="ib" id="bSwap" title="Swap the White and Black players" data-ic="arrows-down-up"></button><label class="chk" title="Swap sides at random when starting"><input type="checkbox" id="rnd"> random colors</label></div>
         <div class="seat" id="seat1"></div>
-        <div class="row"><label class="chk" title="A Hint button shows the best move (uses Stockfish if installed)"><input type="checkbox" id="allowHints" checked> Hints</label>
-          <label class="chk" title="Allow taking moves back with Undo when playing against the computer"><input type="checkbox" id="allowUndo" checked> Takebacks</label></div>
-        <label class="chk" title="The other side gets your arrows and circles in its prompt (or picture) and is told you don't know it can see them. Draw honest plans, or bait."><input type="checkbox" id="peek"> Opponent can peek at my arrows (sneaky)</label>
-        <div class="row"><button class="primary grow" id="bNew">New game</button><button id="bSwap" title="Swap the White and Black players">&#8645; Swap</button><label class="chk" title="Swap sides at random when starting"><input type="checkbox" id="rnd"> random</label></div>
+
+        <div class="group">
+          <div class="set">
+            <label for="tc">Clock</label>
+            <select id="tc"><option value="0">No clock</option><option value="60+0">1 min (bullet)</option><option value="180+2">3 | 2 (blitz)</option><option value="300+0">5 min (blitz)</option><option value="600+0">10 min (rapid)</option><option value="900+10">15 | 10 (rapid)</option><option value="1800+0">30 min</option></select>
+            <span></span><label class="chk" id="tcAIrow"><input type="checkbox" id="tcAI"> computer and AI players are timed too</label>
+            <label for="variant">Variant</label>
+            <select id="variant"><option value="0">Standard chess</option><option value="1">King of the Hill</option><option value="2">Three-check</option></select>
+            <label for="start">Start</label>
+            <select id="start"><option value="std">Standard position</option><option value="960">Chess960 (Fischer Random)</option><option value="trans">Transcendental (each side shuffled)</option><option value="fen">Custom FEN</option></select>
+            <label id="fenLabel" for="fenIn">FEN</label>
+            <input id="fenIn" type="text" spellcheck="false" placeholder="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1">
+          </div>
+        </div>
+
+        <div class="group toggles">
+          <label class="chk" title="Off: everybody plays by the rules. On: each side has its own switch; illegal moves are played as-is and nobody is told."><input type="checkbox" id="chaos"> Allow illegal moves (chaos mode)</label>
+          <label class="chk" title="A Hint button shows the best move"><input type="checkbox" id="allowHints" checked> Hints</label>
+          <label class="chk" title="Allow taking moves back against the computer"><input type="checkbox" id="allowUndo" checked> Takebacks</label>
+          <label class="chk" title="The other side sees your arrows and circles, and is told you don't know it can"><input type="checkbox" id="peek"> Opponent can peek at my arrows</label>
+        </div>
         <div class="hint" id="hint"></div>
       </div>
-    </details>
+      <div class="startbar"><button class="primary" id="bNew" data-ic="play">Start game</button></div>
+    </section>
+
+    <section class="tab chat" id="tab-chat" hidden>
+      <div id="chatLog"></div>
+      <form id="chatForm" autocomplete="off"><input id="chatIn" type="text" maxlength="300" placeholder="Message your opponent" aria-label="Chat message"><button class="ib" title="Send" data-ic="paper-plane-tilt"></button></form>
+    </section>
   </aside>
 </div>
 <div id="promo" hidden><div class="box" id="promoBox"></div></div>
 <dialog id="settings"></dialog>
-<div id="toast"></div>
+<div id="toast" role="status"></div>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

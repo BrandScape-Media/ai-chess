@@ -6,21 +6,27 @@ import {SET, personaKey} from './settings.js';
 import {eventLine, botReply, pieceName} from './personas.js';
 import {llmTalk} from './players.js';
 
-let unread = 0, tabNow = 'moves';
+let unread = 0, tabNow = 'play';
 const VAL = [0, 1, 3, 3, 5, 9, 0];
 
 export function initChat() {
-  for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => showTab(b.dataset.tab);
+  for (const b of document.querySelectorAll('[data-tab]')) b.onclick = () => showTab(b.dataset.tab);
   $('chatForm').onsubmit = e => { e.preventDefault(); const t = $('chatIn').value.trim(); if (t) { $('chatIn').value = ''; userSays(t); } };
   hooks.say = (side, text) => say(side, text);
 }
+/* side panel tabs: play (moves + controls), new (game setup), chat */
 export function showTab(t) {
+  if (t === 'chat' && !S.chatOn) t = 'play';
   tabNow = t;
-  for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('on', b.dataset.tab === t);
-  $('moves').hidden = t !== 'moves'; $('chat').hidden = t !== 'chat';
+  for (const b of document.querySelectorAll('[data-tab]')) b.classList.toggle('on', b.dataset.tab === t);
+  for (const id of ['play', 'new', 'chat']) $('tab-' + id).hidden = id !== t;
   if (t === 'chat') { unread = 0; $('chatBadge').textContent = ''; $('chatIn').focus(); const l = $('chatLog'); l.scrollTop = l.scrollHeight; }
+  if (t === 'play') { const mv = $('moves'); mv.scrollTop = mv.scrollHeight; }
 }
-export function chatVisible() { document.querySelector('.tabs').style.display = S.chatOn ? '' : 'none'; if (!S.chatOn && tabNow === 'chat') showTab('moves'); }
+export function chatVisible() {
+  for (const b of document.querySelectorAll('[data-tab="chat"]')) b.hidden = !S.chatOn;
+  if (!S.chatOn && tabNow === 'chat') showTab('play');
+}
 
 function add(from, text, cls = '') {
   if (!S.chatOn) return;

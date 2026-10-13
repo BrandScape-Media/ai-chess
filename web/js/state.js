@@ -28,7 +28,7 @@ export function engineName(P) {
   const e = S.engineList?.find(x => x.id === P.engine);
   if (e?.kind === 'maia') return 'Maia ' + (P.maia || 1500);
   const n = (e?.name || P.engine).replace(/\s+(dev|v?\d[\w.\-]*)$/i, '');
-  return n + (P.elo && e?.elo ? ' · ' + P.elo : '');
+  return n;
 }
 export function seatName(i) {
   const P = S.seats[i]; if (!P) return SIDE[i];

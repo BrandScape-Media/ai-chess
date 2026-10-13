@@ -78,6 +78,8 @@ Like the chat on chess.com: talk to the model while you play. Every computer opp
 
 * **Variants:** Chess960 (Fischer Random), King of the Hill, Three-check, Transcendental chess, any position from a FEN. The rules are explained to the models in their prompt.
 * **Arrows and circles** like on chess.com (right-click drag; Shift/Alt/Ctrl for colors), plus a sneaky option: **let the opponent peek at your arrows**. Plan honestly, or bait it.
+* **Clocks** from 1-minute bullet to 30-minute games, with increment; computer players can be timed too (watch an LLM flag).
+* **Ratings:** engines show realistic Elo estimates, every AI model gets a random rating for the game, and your own rating goes up and down as you win and lose.
 * **Hints** (best move from Stockfish or the built-in engine) and **takebacks**, each can be switched off.
 * Move list with review, flip board, PGN/FEN export, the game is saved automatically.
 * **12 piece sets** and **11 board themes**, custom colors, or upload your own pieces.

@@ -11,6 +11,7 @@ export const SET = {
   defaultPersonality: 'random',
   modelPersonality: {},
   providers: [],
+  profile: {rating: 1200, games: 0},
 };
 export const onSettings = {changed: null};   // app.js: refresh seat menus etc.
 
@@ -23,6 +24,7 @@ export async function loadSettings() {
     if (s.defaultPersonality) SET.defaultPersonality = s.defaultPersonality;
     if (s.modelPersonality) SET.modelPersonality = s.modelPersonality;
     SET.providers = s.providers || [];
+    if (s.profile && s.profile.rating) SET.profile = s.profile;
   } catch (e) { console.warn('settings', e); }
   applyAppearance(SET.appearance);
 }
@@ -32,7 +34,7 @@ export function saveSettings(now) {
   const go = async () => {
     try {
       const body = {appearance: SET.appearance, chat: SET.chat, personalities: SET.personalities, defaultPersonality: SET.defaultPersonality,
-        modelPersonality: SET.modelPersonality, providers: SET.providers.map(p => ({id: p.id, base: p.base, name: p.name, kind: p.kind, custom: p.custom, key: p._key || '', clearKey: p._clear}))};
+        modelPersonality: SET.modelPersonality, profile: SET.profile, providers: SET.providers.map(p => ({id: p.id, base: p.base, name: p.name, kind: p.kind, custom: p.custom, key: p._key || '', clearKey: p._clear}))};
       const s = await api('/api/settings', body);
       SET.providers = s.providers;
       if (onSettings.changed) onSettings.changed();
@@ -118,7 +120,7 @@ function lookTab(sec) {
   sec.append(el('div', {class: 'row', style: 'margin-top:10px'}, el('span', {class: 'hint'}, 'Your own set: pick 12 images named wK, wQ, wR, wB, wN, wP, bK, bQ, bR, bB, bN, bP (.svg/.png)'), up));
   sec.append(el('h4', {}, 'Board options'),
     el('div', {class: 'grid2'},
-      el('label', {}, 'Coordinates'), check('show a–h / 1–8 on the board', () => a.coords !== false, v => { a.coords = v; applyAppearance(a); }),
+      el('label', {}, 'Coordinates'), check('show a-h and 1-8 on the board', () => a.coords !== false, v => { a.coords = v; applyAppearance(a); }),
       el('label', {}, 'Move hints'), check('dots on the squares a piece can go to', () => a.dots !== false, v => { a.dots = v; applyAppearance(a); }),
       el('label', {}, 'Animation'), check('slide pieces when they move', () => a.animate !== false, v => { a.animate = v; applyAppearance(a); }),
       el('label', {}, 'Sound'), check('move and capture sounds', () => a.sound !== false, v => { a.sound = v; })));
@@ -142,7 +144,7 @@ function aiTab(sec) {
       p.custom ? el('button', {class: 'danger', onclick: () => { SET.providers = SET.providers.filter(x => x !== p); saveSettings(true).then(() => openSettings()); }}, 'Remove') : null),
     el('div', {class: 'row'}, base));
     if (!p.local || p.custom) {
-      const key = el('input', {type: 'password', placeholder: p.keySet ? `key saved (${p.keyHint}) — type to replace` : 'API key', autocomplete: 'off', style: 'flex:1'});
+      const key = el('input', {type: 'password', placeholder: p.keySet ? `key saved (${p.keyHint}), type to replace` : 'API key', autocomplete: 'off', style: 'flex:1'});
       key.onchange = () => { p._key = key.value.trim(); p._clear = false; saveSettings(true).then(() => { key.value = ''; openSettings(); }); };
       c.append(el('div', {class: 'row'}, key, p.keySet ? el('button', {onclick: () => { p._clear = true; saveSettings(true).then(() => openSettings()); }}, 'Forget key') : null));
     }
@@ -171,7 +173,7 @@ export async function refreshEngines() {
   catch (e) { S.engineList = S.engineList || []; return null; }
 }
 async function enginesTab(sec) {
-  sec.append(el('h3', {}, 'Chess engines'), el('p', {class: 'hint'}, 'The built-in engine always works (all variants, levels 1–5). Install real engines with one click: they are downloaded from their official GitHub releases into the data folder.'));
+  sec.append(el('h3', {}, 'Chess engines'), el('p', {class: 'hint'}, 'The built-in engine always works (all variants, levels 1-5). Install real engines with one click: they are downloaded from their official GitHub releases into the data folder.'));
   const box = el('div'); sec.append(box);
   const draw = async () => {
     const r = await refreshEngines();
@@ -183,7 +185,7 @@ async function enginesTab(sec) {
       const plays = (e.variants || ['chess']).map(v => ({chess: 'standard', kingofthehill: 'King of the Hill', '3check': 'Three-check'}[v] || v)).join(', ') + (e.chess960 ? ', Chess960' : '');
       box.append(el('div', {class: 'card'}, el('div', {class: 'row'}, el('span', {class: 't'}, e.name), el('span', {class: 'tag'}, {elo: 'Elo slider', nodes: 'neural net', maia: 'human-like', time: 'time per move'}[e.kind] || e.kind),
         el('span', {class: 'grow'}), el('button', {class: 'danger', onclick: async () => { if (confirm(`Remove ${e.name}?`)) { await api('/api/engines/remove', {id: e.id}); draw(); } }}, 'Remove')),
-      el('span', {class: 's'}, 'Plays: ' + plays + (e.elo ? ` · strength ${e.elo[0]}–${e.elo[1]} Elo or full` : '')),
+      el('span', {class: 's'}, 'Plays: ' + plays + (e.elo ? ` · strength ${e.elo[0]}-${e.elo[1]} Elo or full` : '')),
       e.kind === 'maia' ? el('span', {class: 's'}, 'Ratings: ' + Object.keys(e.weights || {}).join(', ')) : null));
     }
     box.append(el('h4', {}, 'Get engines'));

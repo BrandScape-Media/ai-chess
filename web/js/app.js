@@ -3,8 +3,9 @@ import * as C from './core.js';
 import {$, api, toast, el, esc, relayOK} from './util.js';
 import {S, SIDE, VARIANT_NAME, hooks, isAI, humanCount, rulesOff, seatName, shortModel, ascii, histText, remember} from './state.js';
 import {applyAppearance, setPiece, preloadCanvasPieces, isImageSet, glyph} from './theme.js';
-import {SET, loadSettings, openSettings, refreshEngines, onSettings} from './settings.js';
+import {SET, loadSettings, saveSettings, openSettings, refreshEngines, onSettings} from './settings.js';
 import {askEngine, askLLM, cancelThinking, resolveIllegal, arrowGeom, sqXY, ARROW_COL, bestMoveHint} from './players.js';
+import {ICONS, icon} from './icons.js';
 import {initChat, assignPersonas, onGameStart, onMove, onGameOver, onTakeback, say, sysMsg, chatVisible, restoreChat, showTab} from './chat.js';
 
 const VAL = [0, 1, 3, 3, 5, 9, 0];
@@ -13,13 +14,16 @@ const PAGE_ID = Math.random().toString(36).slice(2) + Date.now().toString(36);
 const SHOT = /shot/.test(location.hash);   /* screenshot mode (README images): read-only, no long-poll */
 const ELO_STEPS = [0, 3000, 2700, 2500, 2300, 2100, 1900, 1700, 1500, 1400, 1320];
 const TIMES = [[200, '0.2 s'], [500, '0.5 s'], [1000, '1 s'], [2000, '2 s'], [5000, '5 s'], [10000, '10 s']];
+const BUILTIN_ELO = [400, 800, 1200, 1800, 2200];   /* rough estimates for the built-in levels */
+const FULL_ELO = {stockfish: 3600, 'fairy-stockfish': 3400, berserk: 3550, koivisto: 3450};
+const LC0_ELO = {1: 1900, 10: 2300, 100: 2700, 800: 3000, 5000: 3250, 30000: 3400};
 const NODES = [[1, '1 node (pure instinct)'], [10, '10 nodes'], [100, '100 nodes'], [800, '800 nodes'], [5000, '5000 nodes'], [30000, '30k nodes']];
 
 /* ================= setup panel ================= */
 const pendingModel = ['', ''];
 function seatHTML(i) {
   const agent = S.config.agent ? `<option value="agent">${esc(S.config.agent)} (agent)</option>` : '';
-  return `<div class="seat-h"><span class="sw ${i ? 'b' : 'w'}"></span><b>${SIDE[i]}</b>
+  return `<div class="seat-h"><img class="sw" src="pieces/cburnett/${i ? 'b' : 'w'}K.svg" alt=""><b>${SIDE[i]}</b>
     <select id="type${i}"><option value="human">Human</option><option value="engine">Chess engine</option><option value="llm">Local AI model</option>${agent}</select></div>
   <div class="set">
     <label data-t="engine">Engine</label><select id="engine${i}" data-t="engine"></select>
@@ -29,7 +33,7 @@ function seatHTML(i) {
     <label data-k="nodes">Search</label><select id="nodes${i}" data-k="nodes"></select>
     <label data-k="time elo">Think</label><select id="movetime${i}" data-k="time elo"></select>
     <label data-t="llm">Provider</label><select id="prov${i}" data-t="llm"></select>
-    <label data-t="llm">Model</label><span data-t="llm" style="display:flex;gap:6px;min-width:0"><input id="model${i}" type="text" list="models${i}" spellcheck="false" placeholder="model name" style="flex:1;min-width:0"><datalist id="models${i}"></datalist><button id="reload${i}" class="icon" title="Reload the model list">&#8635;</button></span>
+    <label data-t="llm">Model</label><span data-t="llm" style="display:flex;gap:6px;min-width:0"><input id="model${i}" type="text" list="models${i}" spellcheck="false" placeholder="model name" style="flex:1;min-width:0"><datalist id="models${i}"></datalist><button id="reload${i}" class="ib" title="Reload the model list">${icon('arrow-counter-clockwise')}</button></span>
     <label data-t="llm">Thinking</label><select id="think${i}" data-t="llm"><option value="none">Off (fast)</option><option value="low">Low</option><option value="medium">Medium</option><option value="xhigh">Max</option></select>
     <label data-t="llm">Sees</label><select id="sees${i}" data-t="llm" title="Fresh prompt: the full position every turn. One chat: a single growing conversation, like playing an AI in a chat window; with 'moves only' it has to track the board itself (that's where it loses the plot)."><option value="board">Fresh prompt, full board each turn</option><option value="chatboard">One chat, board each turn</option><option value="chat">One chat, moves only (blindfold)</option></select>
     <label data-t="llm">Picture</label><select id="img${i}" data-t="llm" title="Attach a picture of the board for vision models. Text-only models are detected and get text only."><option value="last">Board picture, latest turn only</option><option value="all">Board picture every turn (big context)</option><option value="off">No picture</option></select>
@@ -68,7 +72,7 @@ function providerMenu(i, want) {
 }
 function buildSeat(i) {
   $('seat' + i).innerHTML = seatHTML(i);
-  fillSelect($('level' + i), C.LEVELS.map((l, k) => [k, (k + 1) + ' · ' + l.name]), 3);
+  fillSelect($('level' + i), C.LEVELS.map((l, k) => [k, `${k + 1} · ${l.name} (about ${BUILTIN_ELO[k]})`]), 3);
   fillSelect($('movetime' + i), TIMES, 1000);
   fillSelect($('nodes' + i), NODES, 800);
   if (!relayOK) $('type' + i).querySelector('option[value="llm"]').disabled = true;
@@ -140,7 +144,34 @@ async function loadModels(i, force) {
   }
 }
 function seatFrom(c) {
-  return Object.assign({}, c, {illegal: c.illegal | 0, convo: [], noImage: false, lastPly: -1, note: '', lastInfo: null, persona: null});
+  return Object.assign({}, c, {rating: c.rating || null, illegal: c.illegal | 0, convo: [], noImage: false, lastPly: -1, note: '', lastInfo: null, persona: null});
+}
+/* ratings: engines get a realistic estimate, AI models (and agents) a random rating for the game, you your own */
+function rate(P, reroll) {
+  if (P.type === 'human') P.rating = SET.profile?.rating || 1200;
+  else if (P.type === 'engine') {
+    const e = P.engine && P.engine !== 'builtin' ? engineEntry(P.engine) || {} : null;
+    P.rating = !e ? BUILTIN_ELO[P.level] ?? 1500 : e.kind === 'maia' ? +P.maia || 1500 : e.kind === 'nodes' ? LC0_ELO[P.nodes] || 2800
+      : e.kind === 'elo' && P.elo ? P.elo : FULL_ELO[e.catalog || e.id] || 3000;
+  } else if (reroll || !P.rating) P.rating = 400 + Math.round(Math.random() * 130) * 10;
+  return P;
+}
+/* the game ends: remember the result once, update your rating against a single computer opponent */
+function finish(over) {
+  if (S.over) return;
+  S.over = over; S.resultClosed = false; S.resultDelta = null;
+  const hum = [0, 1].filter(i => S.seats[i].type === 'human');
+  if (hum.length === 1 && over.result !== '*' && S.moves.length >= 2) {
+    const me = hum[0], opp = S.seats[me ^ 1], pr = SET.profile || (SET.profile = {rating: 1200, games: 0});
+    const score = over.result === '1/2-1/2' ? .5 : (over.result === '1-0') === (me === 0) ? 1 : 0;
+    const expect = 1 / (1 + Math.pow(10, ((opp.rating || 1500) - pr.rating) / 400));
+    const k = pr.games < 20 ? 40 : 20, delta = Math.round(k * (score - expect));
+    pr.rating = Math.max(100, pr.rating + delta); pr.games++;
+    S.resultDelta = {delta, rating: pr.rating};
+    S.seats[me].rating = pr.rating;
+    saveSettings();
+  }
+  onGameOver(over);
 }
 /* a different player (or model/engine) takes over side i right away, from the current position */
 function applySeat(i) {
@@ -152,7 +183,7 @@ function applySeat(i) {
   if (c.type === 'llm' && !c.model) { render(); return; }
   const myTurn = !S.over && S.pos.turn === i;
   if (myTurn && S.thinking) cancelThinking();
-  S.seats[i] = seatFrom(c);
+  S.seats[i] = rate(seatFrom(c));
   assignPersonas();
   if (S.sayBy === i) { S.say = ''; S.sayBy = -1; }
   if (humanCount() === 1) S.flipped = S.seats[1].type === 'human';
@@ -167,12 +198,13 @@ function liveApply(i, k) {
   if (c.type !== P.type) return;
   if (k === 'sees' && P.sees !== c.sees) { P.convo = []; P.lastPly = -1; }
   for (const key of ['level', 'elo', 'maia', 'nodes', 'movetime', 'think', 'sees', 'img', 'hint', 'free']) P[key] = c[key];
+  rate(P);
   render(); syncRelay();
 }
 function saveSetup() {
   try {
     localStorage.setItem('aichess.setup', JSON.stringify({seats: [readSeat(0), readSeat(1)], variant: $('variant').value, start: $('start').value,
-      fen: $('fenIn').value, peek: $('peek').checked, rnd: $('rnd').checked, chaos: $('chaos').checked, hints: $('allowHints').checked, undo: $('allowUndo').checked}));
+      fen: $('fenIn').value, peek: $('peek').checked, rnd: $('rnd').checked, chaos: $('chaos').checked, tc: $('tc').value, tcAI: $('tcAI').checked, hints: $('allowHints').checked, undo: $('allowUndo').checked}));
   } catch (e) {}
 }
 function loadSetup() {
@@ -185,6 +217,7 @@ function loadSetup() {
   if (j.fen) $('fenIn').value = j.fen;
   $('peek').checked = !!j.peek; $('rnd').checked = !!j.rnd; $('chaos').checked = !!j.chaos;
   $('allowHints').checked = j.hints !== false; $('allowUndo').checked = j.undo !== false;
+  if (j.tc) $('tc').value = j.tc; $('tcAI').checked = !!j.tcAI; $('tcAIrow').hidden = $('tc').value === '0';
   startVis(); seatVis(0); seatVis(1);
 }
 function startVis() { const f = $('start').value === 'fen'; $('fenLabel').style.display = f ? '' : 'none'; $('fenIn').style.display = f ? '' : 'none'; }
@@ -210,6 +243,10 @@ function startGame() {
     if (P.type === 'llm' && !P.model) { toast(`No model chosen for ${SIDE[i]}: the built-in engine plays instead`); Object.assign(P, {type: 'engine', engine: 'builtin', level: 3}); }
   }
   S.gameId++; cancelThinking();
+  for (const P of seats) rate(P, true);
+  const tc = timeControl();
+  S.clock = tc ? {...tc, ms: [tc.base, tc.base], ai: $('tcAI').checked, last: performance.now()} : null;
+  S.resultClosed = false; S.resultDelta = null;
   S.seats = seats; S.variant = variant; S.c960 = c960; S.startFen = fen; S.startName = name; S.chaos = $('chaos').checked;
   S.pos = new C.Pos(fen, variant, c960); S.startPly = (S.pos.full - 1) * 2 + S.pos.turn;
   S.moves = []; S.sans = []; S.lastMove = 0; S.over = null; S.viewPly = null; S.say = ''; S.sayBy = -1; S.info = ''; S.paused = false;
@@ -223,7 +260,7 @@ function startGame() {
 function checkOver() {
   if (S.over) return;
   const st = S.pos.status();
-  if (st.over) { S.over = {result: st.result, reason: st.reason}; onGameOver(S.over); }
+  if (st.over) finish({result: st.result, reason: st.reason});
 }
 function afterMove() { checkOver(); render(); syncRelay(); schedule(); }
 function schedule() {
@@ -236,6 +273,8 @@ function play(m, opts = {}) {
   const mover = S.pos.turn, P = S.seats[mover], fl = m >> 17, to = (m >> 7) & 127;
   const captured = (fl & C.FL_FREE) ? S.pos.b[to] : (fl & 2) ? (C.PAWN | ((mover ^ 1) << 3)) : (fl & 1) ? S.pos.b[to] : 0;
   const prevEval = S.seats.map((Q, i) => Q?.lastInfo?.white != null ? (i === 0 ? Q.lastInfo.white : -Q.lastInfo.white) / 100 : null);
+  if (S.clock && timed(mover) && S.moves.length > 1) S.clock.ms[mover] += S.clock.inc;
+  if (S.clock) S.clock.last = performance.now();
   remember(S.pos);
   S.sans.push(S.pos.san(m));
   S.pos.make(m); S.moves.push(m); S.lastMove = m; S.viewPly = null;
@@ -307,7 +346,7 @@ function tick(cap) {
 
 function undo() {
   if (!S.moves.length) return;
-  cancelThinking(); S.over = null; S.viewPly = null;
+  cancelThinking(); S.over = null; S.viewPly = null; S.resultClosed = false;
   const hum = S.seats.map(P => P.type === 'human'), any = hum[0] || hum[1];
   do { S.pos.unmake(); S.moves.pop(); S.sans.pop(); }
   while (any && S.moves.length && !hum[S.pos.turn]);
@@ -323,14 +362,14 @@ function undo() {
 function resign() {
   if (S.over) return;
   const hum = [0, 1].filter(i => S.seats[i].type === 'human');
-  if (!hum.length) S.over = {result: '*', reason: 'stopped'};
-  else { const loser = hum.length === 2 ? S.pos.turn : hum[0]; S.over = {result: loser ? '1-0' : '0-1', reason: 'resignation'}; onGameOver(S.over); }
+  if (!hum.length) finish({result: '*', reason: 'stopped'});
+  else { const loser = hum.length === 2 ? S.pos.turn : hum[0]; finish({result: loser ? '1-0' : '0-1', reason: 'resignation'}); }
   cancelThinking(); render(); syncRelay();
 }
 async function hint() {
   if (!S.pos || S.over || S.seats[S.pos.turn].type !== 'human' || $('bHint').disabled) return;
   const gid = S.gameId, len = S.moves.length;
-  $('bHint').disabled = true; $('bHint').textContent = '… thinking';
+  $('bHint').disabled = true; label($('bHint'), 'lightbulb', 'Thinking');
   try {
     const r = await bestMoveHint();
     if (!r || gid !== S.gameId || len !== S.moves.length) return;
@@ -338,7 +377,7 @@ async function hint() {
     S.hint = {f: m & 127, t: to}; S.hintsUsed = (S.hintsUsed || 0) + 1;
     S.say = `${S.pos.san(m)} (${r.by})` + (S.hintsUsed > 1 ? ` · hint ${S.hintsUsed} this game` : ''); S.sayBy = -2;
     render();
-  } finally { $('bHint').disabled = false; $('bHint').innerHTML = '&#128161; Hint'; }
+  } finally { $('bHint').disabled = false; label($('bHint'), 'lightbulb', 'Hint'); }
 }
 function togglePause() {
   if (S.over) return;
@@ -381,22 +420,24 @@ function render() {
   S.anim = null;
   renderShapes();
   renderStrips(vp); renderMoves(); renderStatus();
-  const vtag = [S.variant ? VARIANT_NAME[S.variant] : '', S.startName].filter(Boolean).join(' · ');
-  $('modeTag').textContent = seatName(0) + ' vs ' + seatName(1) + (vtag ? ' · ' + vtag : '');
+  const vtag = [S.variant ? VARIANT_NAME[S.variant] : '', S.startName].filter(Boolean).join(', ');
+  document.title = `${seatName(0)} vs ${seatName(1)}${vtag ? ' (' + vtag + ')' : ''} | AI Chess`;
   $('einfo').textContent = S.info;
   const bub = $('bubble');
   if (S.say && (S.sayBy >= 0 || S.sayBy === -2)) { bub.hidden = false; bub.innerHTML = ''; bub.append(el('b', {}, (S.sayBy === -2 ? 'Hint' : seatName(S.sayBy)) + ': '), S.say); } else bub.hidden = true;
   $('bUndo').disabled = !S.moves.length;
   const hc = humanCount();
-  $('bResign').textContent = hc ? 'Resign' : 'Stop';
+  label($('bResign'), 'flag', hc ? 'Resign' : 'Stop');
   $('bResign').disabled = !!S.over || (!S.moves.length && hc > 0);
   $('bPause').hidden = !!S.over || !S.seats.some(isAI) || (hc > 0 && S.seats[S.pos.turn].type === 'human' && !S.paused);
-  $('bPause').textContent = S.paused ? 'Resume' : 'Pause';
+  label($('bPause'), S.paused ? 'play' : 'pause', S.paused ? 'Resume' : 'Pause');
   const vsComputer = S.seats.some(P => P.type !== 'human') && hc > 0;
   $('bUndo').hidden = vsComputer && !$('allowUndo').checked;
   $('bHint').hidden = !$('allowHints').checked || !!S.over || !hc || S.viewPly != null || S.seats[S.pos.turn].type !== 'human';
   chatVisible();
   renderHint();
+  renderResult();
+  drawClocks();
 }
 function animate(m, els) {
   if (SET.appearance.animate === false || ((m >> 17) & C.FL_FREE && (m & 0x88))) return;
@@ -438,22 +479,38 @@ function renderStrips(vp) {
     if (S.variant === C.V_3CHECK) extra.push('checks ' + vp.checks[c] + '/3');
     $('adv' + pfx).textContent = extra.join(' · ');
     const P = S.seats[c];
-    $('name' + pfx).textContent = seatName(c) + (P && P.illegal ? ' · ' + P.illegal + ' illegal' : '');
+    $('name' + pfx).textContent = seatName(c);
+    $('rating' + pfx).textContent = P && P.rating ? `(${P.rating})` : '';
+    $('badge' + pfx).textContent = P && P.illegal ? `${P.illegal} illegal` : '';
+    const av = $('av' + pfx), type = P ? P.type : 'human';
+    if (av.dataset.type !== type) { av.dataset.type = type; av.className = 'avatar ' + type; av.innerHTML = ICONS[{human: 'user', engine: 'cpu', llm: 'robot', agent: 'sparkle'}[type]] || ''; }
+    av.title = {human: 'Human', engine: 'Chess engine', llm: 'AI model', agent: 'Agent'}[type] || '';
     $('name' + pfx).title = P && P.type === 'llm' ? P.model + ' @ ' + P.provider : '';
     $('strip' + pfx).classList.toggle('turn', !S.over && vp.turn === c);
+    $('clock' + pfx).dataset.side = c;
   };
   fill('Top', S.flipped ? 0 : 1); fill('Bot', S.flipped ? 1 : 0);
 }
 function renderMoves() {
   const mv = $('moves'); mv.innerHTML = '';
   const cur = curPly(), off = S.startPly & 1, base = S.startPly - off;
-  for (let k = 0; k < S.sans.length + off; k += 2) {
-    mv.append(el('div', {class: 'n'}, ((base + k) / 2 + 1) + '.'));
+  if (!S.sans.length) mv.append(el('div', {class: 'empty'}, 'No moves yet.'));
+  const img = isImageSet(SET.appearance.pieces);
+  const sanNode = (san, side) => {
+    const m = /^([KQRBN])(.*)$/.exec(san);
+    if (!m) return [san];
+    const t = 'PNBRQK'.indexOf(m[1]) + 1, f = el('i', {class: 'fig' + (img ? ' img w' + m[1] : '')});   /* light figurines for both sides, readable on the dark list */
+    if (!img) f.textContent = glyph(t);
+    return [f, m[2]];
+  };
+  for (let k = 0, row = 0; k < S.sans.length + off; k += 2, row++) {
+    const odd = row & 1 ? ' row-odd' : '';
+    mv.append(el('div', {class: 'n' + odd}, ((base + k) / 2 + 1) + '.'));
     for (let j = 0; j < 2; j++) {
       const idx = k + j - off;
-      if (idx < 0) mv.append(el('div', {class: 'm'}, '…'));
-      else if (idx < S.sans.length) mv.append(el('div', {class: 'm' + (cur === idx + 1 ? ' cur' : '') + (S.sans[idx].endsWith('?!') ? ' free' : ''), onclick: () => goView(idx + 1)}, S.sans[idx]));
-      else mv.append(el('div'));
+      if (idx < 0) mv.append(el('div', {class: 'm' + odd}, '…'));
+      else if (idx < S.sans.length) mv.append(el('div', {class: 'm' + odd + (cur === idx + 1 ? ' cur' : '') + (S.sans[idx].endsWith('?!') ? ' free' : ''), onclick: () => goView(idx + 1)}, ...sanNode(S.sans[idx], (S.startPly + idx) & 1)));
+      else mv.append(el('div', {class: odd.trim()}));
     }
   }
   const c = mv.querySelector('.cur');
@@ -463,21 +520,21 @@ function renderMoves() {
 function resultText() {
   const o = S.over, r = o.result, w = r === '1-0' ? 0 : r === '0-1' ? 1 : -1;
   if (r === '*') return 'Game stopped';
-  if (w < 0) return 'Draw: ' + o.reason;
+  if (w < 0) return 'Draw by ' + o.reason;
   const hc = humanCount();
-  const extra = hc === 1 ? (S.seats[w].type === 'human' ? ' — you win!' : ' — ' + seatName(w) + ' wins') : hc === 0 ? ' — ' + seatName(w) + ' wins' : '';
-  return SIDE[w] + ' wins by ' + o.reason + extra;
+  if (hc === 1) return (S.seats[w].type === 'human' ? 'You won' : seatName(w) + ' won') + ' by ' + o.reason;
+  return `${hc === 2 ? SIDE[w] : seatName(w) + ' (' + SIDE[w] + ')'} won by ${o.reason}`;
 }
 function renderStatus() {
   const st = $('status'); st.className = '';
   if (S.over) { st.textContent = resultText(); st.className = 'over'; return; }
   if (S.viewPly != null) { st.textContent = `Reviewing move ${S.viewPly} of ${S.moves.length} (End to return)`; return; }
   const P = S.seats[S.pos.turn], side = SIDE[S.pos.turn], chk = S.pos.inCheck();
-  if (S.paused && P.type !== 'human') st.textContent = 'Paused — press Resume';
+  if (S.paused && P.type !== 'human') st.textContent = 'Paused. Press Resume to continue';
   else if (P.type === 'engine') st.textContent = seatName(S.pos.turn) + ' is thinking…';
   else if (P.type === 'llm') st.textContent = shortModel(P) + ' (' + side + ') is thinking…';
   else if (P.type === 'agent') st.textContent = seatName(S.pos.turn) + '’s move (' + side + ')…';
-  else st.textContent = (humanCount() === 2 ? side + ' to move' : 'Your move') + (chk ? ' — check!' : '');
+  else st.textContent = (humanCount() === 2 ? side + ' to move' : 'Your move') + (chk ? ', check' : '');
   if (chk) st.className = 'warn';
 }
 setInterval(() => {   /* a visible clock while a model works (a cold model load can take a minute) */
@@ -486,6 +543,88 @@ setInterval(() => {   /* a visible clock while a model works (a cold model load 
   const s = Math.round((performance.now() - S.llmT0) / 1000);
   $('einfo').textContent = `waiting for ${shortModel(P)} · ${s}s` + (s >= 30 ? ' (the server may be loading the model)' : '');
 }, 1000);
+
+/* ================= clocks ================= */
+function timeControl() { const v = $('tc').value; if (!v || v === '0') return null; const [b, inc] = v.split('+').map(Number); return {base: b * 1000, inc: (inc || 0) * 1000}; }
+const timed = side => !!S.clock && !!S.seats[side] && (S.seats[side].type === 'human' || S.clock.ai);
+function fmtClock(ms) {
+  ms = Math.max(0, ms);
+  const t = Math.floor(ms / 1000), h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, s = t % 60;
+  if (ms < 10000) return `0:0${s}.${Math.floor(ms / 100) % 10}`;
+  return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0');
+}
+function drawClocks() {
+  for (const pfx of ['Top', 'Bot']) {
+    const e = $('clock' + pfx), side = +e.dataset.side;
+    if (!S.clock || !S.pos || !timed(side)) { e.hidden = true; continue; }
+    e.hidden = false;
+    const ms = S.clock.ms[side], run = !S.over && !S.paused && S.pos.turn === side && S.moves.length > 0;
+    e.textContent = fmtClock(ms);
+    e.classList.toggle('run', run);
+    e.classList.toggle('low', ms < Math.min(20000, S.clock.base / 4));
+    e.classList.toggle('flag', ms <= 0);
+  }
+}
+/* mating material left for `side`? (running out of time against a lone king is a draw) */
+function canMate(side) {
+  let minors = 0;
+  for (let s = 0; s < 128; s++) {
+    if (s & 0x88) { s += 7; continue; }
+    const q = S.pos.b[s]; if (!q || (q >> 3) !== side) continue;
+    const t = q & 7;
+    if (t === C.PAWN || t === C.ROOK || t === C.QUEEN) return true;
+    if (t !== C.KING) minors++;
+  }
+  return minors >= 2;
+}
+setInterval(() => {
+  if (!S.clock || !S.pos) return;
+  const now = performance.now(), dt = now - S.clock.last; S.clock.last = now;
+  if (S.over || S.paused || S.inactive || SHOT || !S.moves.length) { drawClocks(); return; }
+  const side = S.pos.turn;
+  if (timed(side)) {
+    S.clock.ms[side] -= dt;
+    if (S.clock.ms[side] <= 0) {
+      S.clock.ms[side] = 0;
+      cancelThinking();
+      finish(canMate(side ^ 1) ? {result: side ? '1-0' : '0-1', reason: 'timeout'} : {result: '1/2-1/2', reason: 'timeout against insufficient material'});
+      render(); syncRelay(); return;
+    }
+  }
+  drawClocks();
+}, 100);
+
+/* ================= result card ================= */
+function renderResult() {
+  const box = $('result');
+  if (!S.over || S.resultClosed || S.viewPly != null) { box.hidden = true; return; }
+  if (!box.hidden && box.dataset.game === String(S.gameId)) return;
+  const o = S.over, w = o.result === '1-0' ? 0 : o.result === '0-1' ? 1 : -1, hum = [0, 1].filter(i => S.seats[i].type === 'human');
+  let title = w < 0 ? 'Draw' : SIDE[w] + ' wins', ic = w < 0 ? 'handshake' : 'trophy';
+  if (o.result === '*') { title = 'Game stopped'; ic = 'flag'; }
+  else if (hum.length === 1 && w >= 0) { const won = S.seats[w].type === 'human'; title = won ? 'You won' : 'You lost'; ic = won ? 'trophy' : 'flag'; }
+  const d = S.resultDelta;
+  box.dataset.game = String(S.gameId);
+  box.innerHTML = '';
+  const card = el('div', {class: 'card'},
+    el('div', {class: 'head'}, el('span', {class: 'ic'}), el('h2', {}, title), el('p', {}, o.result === '*' ? '' : 'by ' + o.reason)),
+    d ? el('div', {class: 'delta'}, 'Your rating ', el('b', {}, String(d.rating)), ' ', el('span', {class: d.delta >= 0 ? 'up' : 'down'}, (d.delta >= 0 ? '+' : '') + d.delta)) : null,
+    el('div', {class: 'btns'},
+      el('button', {class: 'primary', onclick: () => startGame()}, 'Rematch'),
+      el('button', {onclick: () => { S.resultClosed = true; showTab('new'); render(); }}, 'New game'),
+      el('button', {onclick: () => { S.resultClosed = true; render(); }}, 'Review the game')));
+  card.querySelector('.ic').innerHTML = ICONS[ic] || '';
+  box.append(card);
+  box.hidden = false;
+}
+
+/* icon + text button label */
+function label(btn, ic, text) {
+  const key = ic + '|' + text;
+  if (btn.dataset.lbl === key) return;
+  btn.dataset.lbl = key;
+  btn.innerHTML = icon(ic) + (text ? `<span>${esc(text)}</span>` : '');
+}
 
 /* ================= arrows ================= */
 let adraw = null;
@@ -572,7 +711,7 @@ function relayState() {
     rulesFree: P.type === 'agent' ? rulesOff(P) : false, paused: S.paused,
     over: S.over, fullmove: p.full, inCheck: p.inCheck(), checks: S.variant === C.V_3CHECK ? p.checks.slice() : undefined,
     moves: S.moves.map(m => C.uci(m, S.c960)), movesRaw: S.moves.slice(), san: S.sans, lastSan: S.sans.length ? S.sans[S.sans.length - 1] : null,
-    legal: lu, board: ascii(p),
+    legal: lu, board: ascii(p), clock: S.clock ? {base: S.clock.base, inc: S.clock.inc, ms: S.clock.ms, ai: S.clock.ai} : null,
     chatLog: (S.chatLog || []).slice(-100), shapes: {arrows: S.arrows, circles: S.circles},
   };
   if (S.config.agent) {
@@ -606,7 +745,8 @@ async function tryRestore() {
     for (const i of [0, 1]) writeSeat(i, d.seats[i]);
     $('variant').value = variant; $('chaos').checked = !!d.chaos; seatVis(0); seatVis(1);
     S.gameId++; cancelThinking();
-    S.seats = d.seats.map(seatFrom); S.variant = variant; S.c960 = c960; S.startFen = fen; S.startName = d.startName || ''; S.chaos = !!d.chaos;
+    S.seats = d.seats.map(seatFrom).map(P => rate(P));
+    S.clock = d.clock ? {...d.clock, ms: d.clock.ms.slice(), last: performance.now()} : null; S.resultClosed = false; S.variant = variant; S.c960 = c960; S.startFen = fen; S.startName = d.startName || ''; S.chaos = !!d.chaos;
     S.pos = pos; S.startPly = (() => { const q = new C.Pos(fen, variant, c960); return (q.full - 1) * 2 + q.turn; })();
     S.moves = d.movesRaw.slice(); S.sans = sans; S.lastMove = S.moves[S.moves.length - 1]; S.over = null; S.viewPly = null;
     S.say = ''; S.sayBy = -1; S.info = ''; S.paused = !!d.paused; S.arrows = []; S.circles = []; S.anim = null;
@@ -661,7 +801,9 @@ async function copy(txt, what) {
   try { await navigator.clipboard.writeText(txt); toast(what + ' copied'); }
   catch (e) { window.prompt('Copy ' + what + ':', txt); }
 }
-$('bNew').onclick = startGame;
+$('bNew').onclick = () => { startGame(); showTab('play'); };
+$('tc').onchange = () => { $('tcAIrow').hidden = $('tc').value === '0'; saveSetup(); };
+$('tcAI').onchange = saveSetup;
 $('bSwap').onclick = () => { swapSeats(); saveSetup(); applySeat(0); applySeat(1); };
 $('bUndo').onclick = undo;
 $('bFlip').onclick = () => { S.flipped = !S.flipped; render(); };
@@ -699,6 +841,7 @@ onSettings.changed = () => {
 
 /* ================= boot ================= */
 Object.assign(hooks, {play, render, afterMove, schedule, sync: () => syncRelay()});
+for (const e of document.querySelectorAll('[data-ic]')) e.insertAdjacentHTML('afterbegin', icon(e.dataset.ic));
 (async () => {
   if (relayOK) { try { S.config = await api('/api/config'); } catch (e) {} }
   await loadSettings();

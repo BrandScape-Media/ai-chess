@@ -30,7 +30,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from uci import Engines
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 FROZEN = getattr(sys, "frozen", False)
 APP_DIR = Path(sys.executable if FROZEN else __file__).resolve().parent
 BUNDLE = Path(getattr(sys, "_MEIPASS", APP_DIR))
@@ -640,6 +640,7 @@ def main():
     ap.add_argument("--exit-when-idle", type=float, default=90 if FROZEN else 0, metavar="SEC",
                     help="quit when the page has been closed this long (default 90 for the .exe, off otherwise)")
     ap.add_argument("--data", default=None, help="folder for settings, saved game and engines (default: ./data)")
+    ap.add_argument("--no-stockfish", action="store_true", help="don't set up Stockfish on the first start")
     a = ap.parse_args()
     DATA = Path(a.data) if a.data else APP_DIR / "data"
     if not writable(DATA):
@@ -666,6 +667,8 @@ def main():
     state = load_json(data_path(CFG["state"]), {})
     settings = load_json(data_path("settings.json"), {})
     engines = Engines(DATA)
+    if not a.no_stockfish:   # first start: Stockfish from the copy inside the program, or downloaded (in the background)
+        threading.Thread(target=engines.ensure_stockfish, args=(BUNDLE / "engines",), daemon=True).start()
     print(f"ai-chess {VERSION} running at {url}")
     if a.lan and lan_ip():
         print(f"On your network:      http://{lan_ip()}:{port}")

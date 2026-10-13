@@ -970,11 +970,10 @@ function setFree(i, v) {
 }
 const pcardOpen = (pfx, e) => { e.stopPropagation(); const side = +$('clock' + pfx).dataset.side; openPlayer(side, $('av' + pfx)); };
 for (const pfx of ['Top', 'Bot']) {
-  $('lvl' + pfx).onclick = e => pcardOpen(pfx, e);
   $('av' + pfx).onclick = e => pcardOpen(pfx, e);
   $('name' + pfx).onclick = e => pcardOpen(pfx, e);
 }
-document.addEventListener('pointerdown', e => { const pop = $('strengthPop'); if (!pop.hidden && !pop.contains(e.target) && !e.target.closest('.lvl, .player .avatar, .player .name')) pop.hidden = true; });
+document.addEventListener('pointerdown', e => { const pop = $('strengthPop'); if (!pop.hidden && !pop.contains(e.target) && !e.target.closest('.player .avatar, .player .name')) pop.hidden = true; });
 function renderHint() {
   const L = [], types = S.seats.map(P => P?.type);
   const ci = types.indexOf('agent');
@@ -1005,15 +1004,13 @@ function renderStrips(vp) {
     const builtinEng = P && P.type === 'engine' && (!P.engine || P.engine === 'builtin');
     $('name' + pfx).textContent = builtinEng ? 'Engine' : seatName(c);
     $('rating' + pfx).textContent = P && P.rating ? `(${P.rating})` : '';
-    const chip = $('lvl' + pfx), ct = P && P.type === 'engine' && !S.replay ? strengthLabel(P) : '';
-    chip.hidden = !ct; chip.dataset.side = c;
-    if (ct && chip.dataset.t !== ct) { chip.dataset.t = ct; chip.innerHTML = esc(ct) + icon('caret-down'); }
-    chip.title = 'Change ' + seatName(c) + '’s strength';
     $('badge' + pfx).textContent = P && P.illegal ? `${P.illegal} illegal` : '';
     const av = $('av' + pfx), type = P ? P.type : 'human';
     paintAvatar(av, P, 'avatar');
-    av.title = {human: 'Human', engine: 'Chess engine', llm: 'AI model', agent: 'Agent'}[type] || '';
-    $('name' + pfx).title = P && P.type === 'llm' ? P.model + ' @ ' + P.provider : '';
+    /* the picture and the name open the player card (strength, illegal moves, hints) */
+    const card = P && P.type === 'engine' && !S.replay ? 'Click to change the strength and more' : 'Click for the player card';
+    av.title = `${{human: 'Human', engine: 'Chess engine', llm: 'AI model', agent: 'Agent'}[type] || ''}. ${card}`;
+    $('name' + pfx).title = (P && P.type === 'llm' ? P.model + ' @ ' + P.provider + '. ' : '') + card;
     $('strip' + pfx).classList.toggle('turn', !S.over && vp.turn === c);
     $('clock' + pfx).dataset.side = c;
   };

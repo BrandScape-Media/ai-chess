@@ -476,7 +476,7 @@ class Handler(BaseHTTPRequestHandler):
                 if active_page and data.get("page") != active_page:
                     return self.send(409, {"error": "the game is open in another window", "inactive": True})
                 state = data
-                save_json(data_path("last_game.json"), state)
+                save_json(data_path(CFG.get("state", "last_game.json")), state)
                 cond.notify_all()
             self.send(200, {"ok": True})
         elif path == "/api/settings":
@@ -581,14 +581,6 @@ def open_page(url, app):
     webbrowser.open(url)
 
 
-def already_running(port):
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=2) as r:
-            return json.load(r).get("app") == "ai-chess"
-    except (OSError, ValueError):
-        return False
-
-
 def idle_watch(seconds):
     while True:
         time.sleep(5)
@@ -625,22 +617,28 @@ def main():
         writable(DATA)
     local = load_json(APP_DIR / "local.json", {})
     CFG.update(agent=local.get("agent") or None, lan=a.lan, port=a.port)
-    url = f"http://localhost:{a.port}"
-    if already_running(a.port):
-        print(f"ai-chess is already running at {url}")
-        if not a.no_browser:
-            open_page(url, a.app)
-        return
     if sys.platform == "win32":   # SO_REUSEADDR on Windows would let a second server share the port
         ThreadingHTTPServer.allow_reuse_address = False
-    srv = ThreadingHTTPServer(("0.0.0.0" if a.lan else "127.0.0.1", a.port), Handler)
+    # several copies can run at once: each takes the next free port and keeps its own saved game
+    srv = None
+    for port in range(a.port, a.port + 50):
+        try:
+            srv = ThreadingHTTPServer(("0.0.0.0" if a.lan else "127.0.0.1", port), Handler)
+            break
+        except OSError:
+            continue
+    if srv is None:
+        raise SystemExit(f"no free port between {a.port} and {a.port + 49}")
+    CFG["port"] = port
+    CFG["state"] = "last_game.json" if port == a.port else f"last_game-{port}.json"
+    url = f"http://localhost:{port}"
     srv.daemon_threads = True
-    state = load_json(data_path("last_game.json"), {})
+    state = load_json(data_path(CFG["state"]), {})
     settings = load_json(data_path("settings.json"), {})
     engines = Engines(DATA)
     print(f"ai-chess {VERSION} running at {url}")
     if a.lan and lan_ip():
-        print(f"On your network:      http://{lan_ip()}:{a.port}")
+        print(f"On your network:      http://{lan_ip()}:{port}")
     print(f"Data folder:          {DATA}")
     print("Ctrl+C to stop.")
     if a.exit_when_idle > 0:

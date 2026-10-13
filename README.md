@@ -8,7 +8,7 @@ Everything runs on your own machine. One file to download, nothing to install.
 
 ## Start in a minute
 
-**Windows:** download `ai-chess-windows.exe` from the [Releases page](https://github.com/BrandScape-Media/ai-chess/releases) and double-click it. The game opens in its own window and closes itself when you close the window.
+**Windows:** download `ai-chess-windows.exe` from the [Releases page](https://github.com/BrandScape-Media/ai-chess/releases) and double-click it. The game opens in its own window and closes itself when you close the window. (The program isn't code-signed, so Windows may say "Windows protected your PC": click *More info* → *Run anyway*.)
 
 **Any system with Python 3.10+:** no packages needed.
 

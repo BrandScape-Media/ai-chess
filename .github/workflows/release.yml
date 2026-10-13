@@ -27,6 +27,7 @@ jobs:
   build:
     needs: test
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
@@ -44,7 +45,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install pyinstaller
+      - run: pip install pyinstaller pillow   # pillow turns the .ico into the macOS .icns
       - name: Build
         shell: bash
         run: |

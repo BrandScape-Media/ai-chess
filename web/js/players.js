@@ -74,7 +74,7 @@ function onWorker(e) {
 }
 
 /* positions that slipped through rules-off moves can crash real engines: let the built-in engine handle those */
-function sane(p) {
+export function sane(p) {
   if (p.ksq[0] === C.NOKING || p.ksq[1] === C.NOKING) return false;
   if (p.isAttacked(p.ksq[p.turn ^ 1], p.turn)) return false;
   let n = [0, 0];

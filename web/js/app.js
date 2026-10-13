@@ -7,6 +7,7 @@ import {SET, loadSettings, saveSettings, openSettings, refreshEngines, onSetting
 import {askEngine, askLLM, cancelThinking, resolveIllegal, arrowGeom, sqXY, ARROW_COL, bestMoveHint} from './players.js';
 import {ICONS, icon} from './icons.js';
 import {BOTS} from './historic.js';
+import {analyze, threat, classify, winPct, fmtEval, CLASSES} from './analysis.js';
 import {initChat, assignPersonas, onGameStart, onMove, onGameOver, onTakeback, say, sysMsg, chatVisible, restoreChat, showTab} from './chat.js';
 
 const VAL = [0, 1, 3, 3, 5, 9, 0];
@@ -39,16 +40,18 @@ const NODES = [[1, '1 node (pure instinct)'], [10, '10 nodes'], [100, '100 nodes
 const pendingModel = ['', ''];
 function seatHTML(i) {
   const agent = S.config.agent ? `<option value="agent">${esc(S.config.agent)} (agent)</option>` : '';
-  return `<div class="seat-h"><img class="sw" src="pieces/cburnett/${i ? 'b' : 'w'}K.svg" alt=""><b>${SIDE[i]}</b>
-    <select id="type${i}"><option value="human">Human</option><option value="engine">Chess engine</option><option value="llm">Local AI model</option>${agent}</select></div>
+  const agentBtn = S.config.agent ? `<button type="button" data-v="agent" title="${esc(S.config.agent)} (agent)">${icon('sparkle')}<span>Agent</span></button>` : '';
+  return `<div class="seat-h"><img class="sw" src="pieces/cburnett/${i ? 'b' : 'w'}K.svg" alt=""><b>${SIDE[i]}</b></div>
+    <div class="seg types" id="seg${i}" role="radiogroup" aria-label="${SIDE[i]} player">
+      <button type="button" data-v="human" title="A person at this computer">${icon('user')}<span>Human</span></button>
+      <button type="button" data-v="engine" title="A chess engine">${icon('cpu')}<span>Engine</span></button>
+      <button type="button" data-v="llm" title="A local or cloud AI model">${icon('robot')}<span>AI model</span></button>${agentBtn}
+    </div>
+    <select id="type${i}" hidden><option value="human">Human</option><option value="engine">Chess engine</option><option value="llm">Local AI model</option>${agent}</select>
   <div class="set">
     <label data-t="engine">Engine</label><select id="engine${i}" data-t="engine"></select>
-    <label data-k="builtin">Level</label><select id="level${i}" data-k="builtin"></select>
-    <label data-k="elo">Strength</label><select id="elo${i}" data-k="elo"></select>
-    <label data-k="maia">Rating</label><select id="maia${i}" data-k="maia"></select>
-    <label data-k="nodes">Search</label><select id="nodes${i}" data-k="nodes"></select>
-    <label data-k="time elo">Depth</label><select id="depth${i}" data-k="time elo" title="How many moves ahead the engine may look. Lower is weaker."></select>
-    <label data-k="time elo">Think</label><select id="movetime${i}" data-k="time elo" title="Time per move when there is no clock"></select>
+    <div class="sliders" id="sl${i}" data-t="engine"></div>
+    <div hidden><select id="level${i}"></select><select id="elo${i}"></select><select id="maia${i}"></select><select id="nodes${i}"></select><select id="depth${i}"></select><select id="movetime${i}"></select></div>
     <label data-t="llm">Provider</label><select id="prov${i}" data-t="llm"></select>
     <label data-t="llm">Model</label><span data-t="llm" style="display:flex;gap:6px;min-width:0"><input id="model${i}" type="text" list="models${i}" spellcheck="false" placeholder="model name" style="flex:1;min-width:0"><datalist id="models${i}"></datalist><button id="reload${i}" class="ib" title="Reload the model list">${icon('arrow-counter-clockwise')}</button></span>
     <label data-t="llm">Thinking</label><select id="think${i}" data-t="llm"><option value="none">Off (fast)</option><option value="low">Low</option><option value="medium">Medium</option><option value="xhigh">Max</option></select>
@@ -103,7 +106,12 @@ function buildSeat(i) {
   fillSelect($('movetime' + i), TIMES, 1000);
   fillSelect($('nodes' + i), NODES, 800);
   fillSelect($('depth' + i), DEPTH_OPTS.map(d => [d, d ? 'depth ' + d : 'No limit']), 0);
-  if (!relayOK) $('type' + i).querySelector('option[value="llm"]').disabled = true;
+  if (!relayOK) { $('type' + i).querySelector('option[value="llm"]').disabled = true; $('seg' + i).querySelector('[data-v="llm"]').disabled = true; }
+  for (const b of $('seg' + i).querySelectorAll('button')) b.onclick = () => {
+    const sel = $('type' + i), o = sel.querySelector(`option[value="${b.dataset.v}"]`);
+    if (!o || o.disabled || sel.value === b.dataset.v) return;
+    sel.value = b.dataset.v; sel.onchange();
+  };
   $('type' + i).onchange = async () => {
     const t = $('type' + i).value;
     $('free' + i).checked = t === 'llm' || t === 'agent';
@@ -129,7 +137,68 @@ function seatVis(i) {
   for (const e of $('seat' + i).querySelectorAll('[data-t]')) e.style.display = e.dataset.t.split(' ').includes(t) ? '' : 'none';
   for (const e of $('seat' + i).querySelectorAll('[data-k]')) e.style.display = kind && e.dataset.k.split(' ').includes(kind) ? '' : 'none';
   for (const e of $('seat' + i).querySelectorAll('[data-chaos]')) e.style.display = $('chaos').checked && t !== 'engine' ? '' : 'none';
+  for (const b of $('seg' + i).querySelectorAll('button')) { const on = b.dataset.v === t; b.classList.toggle('on', on); b.setAttribute('aria-checked', on); }
+  renderSeatSliders(i);
+  renderMatchup();
 }
+/* engine strength sliders inside the seat card (the same ones as on the player card during a game) */
+function renderSeatSliders(i) {
+  const box = $('sl' + i);
+  if ($('type' + i).value !== 'engine') { box.innerHTML = ''; return; }
+  const P = readSeat(i), rows = strengthSliders(P, $('tc').value !== '0');
+  box.innerHTML = '';
+  if (!rows.length) { const b = BOTS[P.engine]; box.append(el('p', {class: 'hint'}, b ? b.about[0].toUpperCase() + b.about.slice(1) + '.' : 'Fixed strength.')); return; }
+  for (const r of rows) box.append(sliderRow(r, P, v => { setOpt($(r.key + i), v, r.fmt(v)); saveSetup(); liveApply(i, r.key); renderMatchup(); }));
+}
+function sliderRow(r, P, onSet) {
+  const cur = r.key === 'maia' ? +(P.maia || 1500) : r.key === 'level' ? (P.level ?? 3) : (P[r.key] ?? 0);
+  let idx = r.values.indexOf(cur); if (idx < 0) idx = r.key === 'depth' || r.key === 'elo' ? r.values.length - 1 : 0;
+  const val = el('span', {class: 'v'}, r.fmt(r.values[idx]));
+  const range = el('input', {type: 'range', min: 0, max: r.values.length - 1, step: 1, value: idx, 'aria-label': r.label});
+  const paint = () => range.style.setProperty('--p', (r.values.length > 1 ? +range.value / (r.values.length - 1) * 100 : 100) + '%');
+  paint();
+  range.oninput = () => { val.textContent = r.fmt(r.values[+range.value]); paint(); };
+  range.onchange = () => onSet(r.values[+range.value]);
+  return el('label', {class: 'spr'}, el('span', {class: 'l'}, r.label, r.hint ? el('small', {}, ' ' + r.hint) : null), val, range);
+}
+/* "You vs Stockfish (1500)" at the top of the setup tab */
+function renderMatchup() {
+  const box = $('matchup'); if (!box || !$('type1')) return;
+  const ps = [0, 1].map(i => { const c = readSeat(i); if (c.type === 'engine') rate(c); return c; });
+  const hc = ps.filter(c => c.type === 'human').length;
+  const nm = (c, i) => c.type === 'human' ? (hc === 1 ? 'You' : SIDE[i]) : c.type === 'engine' ? (BOTS[c.engine]?.name || (c.engine === 'builtin' ? 'Built-in engine' : engineEntry(c.engine)?.name || c.engine).replace(/\s+(dev|v?\d[\w.\-]*)$/i, ''))
+    : c.type === 'agent' ? (S.config.agent || 'Agent') : (c.model ? shortModel(c) : 'AI model');
+  const sub = c => c.type === 'engine' ? (c.rating ? 'about ' + c.rating : '') : c.type === 'human' ? (hc === 1 ? 'rated ' + (SET.profile?.rating || 1200) : '') : c.type === 'llm' ? 'rating drawn at the start' : '';
+  const card = (c, i) => {
+    const [ic, col] = avatarOf(c);
+    const av = el('span', {class: 'avatar big ' + c.type, html: ICONS[ic] || ''});
+    if (col) { av.style.background = col; av.style.color = '#f3f0ea'; }
+    return el('div', {class: 'mu'}, av, el('div', {class: 'mut'}, el('b', {}, nm(c, i)), el('small', {}, el('i', {class: 'dot ' + (i ? 'b' : 'w')}), (i ? 'Black' : 'White') + (sub(c) ? ' · ' + sub(c) : ''))));
+  };
+  box.innerHTML = '';
+  box.append(card(ps[0], 0), el('span', {class: 'muvs'}, 'vs'), card(ps[1], 1));
+}
+/* your colour: White / Random / Black (when exactly one side is human), otherwise just a swap button */
+function renderSidePick() {
+  const ts = [0, 1].map(i => $('type' + i).value), one = ts.filter(t => t === 'human').length === 1;
+  $('colorSeg').hidden = !one;
+  const me = ts.indexOf('human'), c = $('rnd').checked ? 'r' : me === 1 ? 'b' : 'w';
+  for (const b of $('colorSeg').querySelectorAll('button')) { b.classList.toggle('on', b.dataset.c === c); b.setAttribute('aria-checked', b.dataset.c === c); }
+}
+for (const b of $('colorSeg').querySelectorAll('button')) b.onclick = () => {
+  const me = [0, 1].findIndex(i => $('type' + i).value === 'human');
+  if (b.dataset.c === 'r') $('rnd').checked = true;
+  else {
+    $('rnd').checked = false;
+    if ((b.dataset.c === 'w' && me === 1) || (b.dataset.c === 'b' && me === 0)) {
+      swapSeats();
+      /* before the first move (or after the game) the sides switch right away; mid-game it is for the next game */
+      if (!S.moves.length || S.over) { applySeat(0); applySeat(1); }
+      else { S.setupDirty = true; toast('Your colour changes with the next game'); }
+    }
+  }
+  saveSetup(); renderSidePick(); renderMatchup();
+};
 function readSeat(i) {
   return {type: $('type' + i).value, engine: $('engine' + i).value || 'builtin', level: +$('level' + i).value, elo: +$('elo' + i).value || 0, maia: $('maia' + i).value || '1500',
     nodes: +$('nodes' + i).value, depth: +$('depth' + i).value || 0, movetime: +$('movetime' + i).value, provider: $('prov' + i).value, model: $('model' + i).value.trim(),
@@ -268,6 +337,7 @@ function replayGame(g) {
   S.variant = g.variant | 0; S.c960 = !!g.c960; S.startFen = g.startFen || C.START_FEN; S.startName = g.startName || ''; S.chaos = false;
   S.pos = pos; S.startPly = (() => { const q = new C.Pos(S.startFen, S.variant, S.c960); return (q.full - 1) * 2 + q.turn; })();
   S.moves = g.movesRaw.slice(); S.sans = sans; S.lastMove = S.moves[S.moves.length - 1];
+  S.setupDirty = false; S.fb = new Map();
   S.over = {result: g.result, reason: g.reason}; S.resultClosed = true; S.resultDelta = g.delta || null; S.replay = g.id; S.gameKey = g.id;
   S.clock = null; S.paused = false; S.say = ''; S.sayBy = -1; S.info = ''; S.arrows = []; S.circles = []; S.anim = null; S.hint = null;
   S.flipped = g.players[1].type === 'human' && g.players[0].type !== 'human';
@@ -279,7 +349,7 @@ function replayGame(g) {
 /* a different player (or model/engine) takes over side i right away, from the current position */
 function applySeat(i) {
   const P = S.seats[i];
-  if (!P || !S.pos) { render(); return; }
+  if (!P || !S.pos || S.setupDirty) { render(); return; }
   const c = readSeat(i);
   const same = c.type === P.type && (c.type !== 'llm' || (c.model === P.model && c.provider === P.provider)) && (c.type !== 'engine' || c.engine === P.engine);
   if (same) { liveApply(i); return; }
@@ -296,7 +366,7 @@ function applySeat(i) {
 }
 /* options that change how the current player plays */
 function liveApply(i, k) {
-  const P = S.seats[i]; if (!P) return;
+  const P = S.seats[i]; if (!P || S.setupDirty) return;
   const c = readSeat(i);
   if (c.type !== P.type) return;
   if (k === 'sees' && P.sees !== c.sees) { P.convo = []; P.lastPly = -1; }
@@ -309,6 +379,7 @@ function saveSetup() {
     localStorage.setItem('aichess.setup', JSON.stringify({seats: [readSeat(0), readSeat(1)], variant: $('variant').value, start: $('start').value,
       fen: $('fenIn').value, peek: $('peek').checked, rnd: $('rnd').checked, chaos: $('chaos').checked, tc: $('tc').value, tcLLM: $('tcLLM').checked, hints: $('allowHints').checked, undo: $('allowUndo').checked}));
   } catch (e) {}
+  renderSidePick(); renderMatchup();
 }
 function loadSetup() {
   let j = null;
@@ -337,6 +408,7 @@ function setTc(v) {
   $('tc').value = v;
   for (const b of $('tcPick').querySelectorAll('.tcb')) { const on = b.dataset.tc === v; b.classList.toggle('on', on); b.setAttribute('aria-checked', on); }
   $('tcAIrow').hidden = v === '0';
+  if ($('sl0')) { renderSeatSliders(0); renderSeatSliders(1); }
 }
 function startVis() { const f = $('start').value === 'fen'; $('fenLabel').style.display = f ? '' : 'none'; $('fenIn').style.display = f ? '' : 'none'; }
 function swapSeats() { const a = readSeat(0), b = readSeat(1); writeSeat(0, b); writeSeat(1, a); }
@@ -362,7 +434,7 @@ function startGame() {
     if (P.type === 'llm' && !P.model) { toast(`No model chosen for ${SIDE[i]}: the built-in engine plays instead`); Object.assign(P, {type: 'engine', engine: 'builtin', level: 3}); }
   }
   S.gameId++; cancelThinking();
-  S.gameKey = newKey(); S.replay = null;
+  S.gameKey = newKey(); S.replay = null; S.setupDirty = false;
   for (const P of seats) rate(P, true);
   const tc = timeControl();
   S.clock = tc ? {...tc, ms: [tc.base, tc.base], llmFree: $('tcLLM').checked, last: performance.now()} : null;
@@ -371,6 +443,7 @@ function startGame() {
   S.pos = new C.Pos(fen, variant, c960); S.startPly = (S.pos.full - 1) * 2 + S.pos.turn;
   S.moves = []; S.sans = []; S.lastMove = 0; S.over = null; S.viewPly = null; S.say = ''; S.sayBy = -1; S.info = ''; S.paused = false;
   S.lastOn = new Map(); S.arrows = []; S.circles = []; S.anim = null; S.hint = null; S.hintsUsed = 0;
+  S.fb = new Map(); S.an = null; S.threatA = null;
   cancelPremove(); clearSel();
   S.flipped = seats[1].type === 'human' && seats[0].type !== 'human';
   assignPersonas(); onGameStart();
@@ -517,6 +590,7 @@ function undo() {
     P.lastPly = P.convo.length ? P.convo[P.convo.length - 1].ply : -1;
   }
   S.lastMove = S.moves.length ? S.moves[S.moves.length - 1] : 0; S.info = ''; S.say = ''; S.anim = null; S.hint = null;
+  if (S.fb) for (const k of [...S.fb.keys()]) if (k > S.moves.length) S.fb.delete(k);
   onTakeback();
   clearSel(); afterMove();
 }
@@ -581,13 +655,15 @@ function render() {
   }
   if (live && S.anim) animate(S.anim, pieceEls);
   S.anim = null;
-  renderShapes();
+  feedbackBadge(pieceEls);
+  drawAssist();
   renderStrips(vp); renderMoves(); renderStatus();
   const vtag = [S.variant ? VARIANT_NAME[S.variant] : '', S.startName].filter(Boolean).join(', ');
   document.title = `${seatName(0)} vs ${seatName(1)}${vtag ? ' (' + vtag + ')' : ''} | AI Chess`;
   $('einfo').textContent = S.info;
   const bub = $('bubble');
-  if (S.say && (S.sayBy >= 0 || S.sayBy === -2)) { bub.hidden = false; bub.innerHTML = ''; bub.append(el('b', {}, (S.sayBy === -2 ? 'Hint' : seatName(S.sayBy)) + ': '), S.say); } else bub.hidden = true;
+  if (S.sayBy === -3) { if (S.fbShown !== curPly()) { bub.hidden = true; bub.className = ''; S.say = ''; S.sayBy = -1; } }   /* move feedback */
+  else if (S.say && (S.sayBy >= 0 || S.sayBy === -2)) { bub.className = ''; bub.hidden = false; bub.innerHTML = ''; bub.append(el('b', {}, (S.sayBy === -2 ? 'Hint' : seatName(S.sayBy)) + ': '), S.say); } else bub.hidden = true;
   $('bUndo').disabled = !S.moves.length || !!S.replay;
   const hc = humanCount();
   label($('bResign'), 'flag', hc ? 'Resign' : 'Stop');
@@ -601,6 +677,26 @@ function render() {
   renderHint();
   renderResult();
   drawClocks();
+  assistKick();
+}
+/* the move-feedback marker on the square the last shown move went to */
+function feedbackBadge() {
+  /* the feedback stays up while the opponent answers: the latest or the one before */
+  const cur = curPly(), ply = S.fb?.get(cur) ? cur : cur - 1, f = S.fb && S.fb.get(ply);
+  S.fbShown = null;
+  if (!f || !SET.assist.feedback || ply < 1) return;
+  const m = S.moves[ply - 1], to = (m >> 17) & C.FL_CASTLE ? (m & 0x70) + (((m >> 7) & 127) > (m & 127) ? 6 : 2) : (m >> 7) & 127;
+  const sq = $('board').querySelector(`.sq[data-sq="${to}"]`), c = CLASSES[f.cls];
+  if (!sq || !c) return;
+  const b = el('span', {class: 'fbadge', title: c.name, style: `background:${c.col}`});
+  if (c.icon) b.innerHTML = ICONS[c.icon] || ''; else b.textContent = c.glyph;
+  sq.append(b);
+  if (cur === S.moves.length && S.viewPly == null && !S.over) {
+    S.say = `${f.played} is ${f.cls === 'best' ? 'the best move' : f.cls === 'excellent' ? 'excellent' : f.cls === 'good' ? 'a good move' : 'a' + (f.cls === 'inaccuracy' ? 'n ' : ' ') + f.cls}` + (f.cls !== 'best' && f.best && f.best !== f.played ? `. Best was ${f.best}.` : '.');
+    S.sayBy = -3; S.fbShown = cur;
+    const bub = $('bubble'); bub.hidden = false; bub.innerHTML = ''; bub.className = 'fb-' + f.cls;
+    bub.append(el('b', {style: `color:${c.col}`}, c.name + ': '), S.say);
+  }
 }
 function animate(m, els) {
   if (SET.appearance.animate === false || ((m >> 17) & C.FL_FREE && (m & 0x88))) return;
@@ -626,7 +722,7 @@ function strengthLabel(P) {
   if (k === 'nodes') return (P.nodes || 800) + ' nodes';
   return '';
 }
-function strengthSliders(P) {
+function strengthSliders(P, clockOn = !!S.clock) {
   const k = engKind(P), e = engineEntry(P.engine) || {}, out = [];
   const depth = {key: 'depth', label: 'Depth', hint: 'moves it looks ahead', values: [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 18, 20, 25, 30, 0], fmt: v => v ? String(v) : 'No limit'};
   const think = {key: 'movetime', label: 'Think time', hint: 'per move (no clock)', values: TIMES.map(t => t[0]), fmt: v => (TIMES.find(t => t[0] === v) || [0, v + ' ms'])[1]};
@@ -636,7 +732,7 @@ function strengthSliders(P) {
     for (let v = Math.ceil(lo / 50) * 50; v <= hi; v += 50) vals.push(v);
     out.push({key: 'elo', label: 'Strength', values: [...vals, 0], fmt: v => v ? v + ' Elo' : 'Full strength'});
   }
-  if (k === 'elo' || k === 'time') { out.push(depth); if (!S.clock) out.push(think); }
+  if (k === 'elo' || k === 'time') { out.push(depth); if (!clockOn) out.push(think); }
   if (k === 'maia') out.push({key: 'maia', label: 'Rating', values: Object.keys(e.weights || {}).filter(x => /^\d+$/.test(x)).map(Number), fmt: v => String(v)});
   if (k === 'nodes') out.push({key: 'nodes', label: 'Search', values: NODES.map(n => n[0]), fmt: v => (NODES.find(n => n[0] === v) || [0, v + ' nodes'])[1]});
   return out;
@@ -651,18 +747,11 @@ function openStrength(i, anchor) {
   pop.append(el('div', {class: 'sph'}, el('b', {}, seatName(i)), est));
   const rows = strengthSliders(P);
   if (!rows.length) pop.append(el('p', {class: 'hint'}, 'This one has a fixed strength.'));
-  for (const r of rows) {
-    const cur = r.key === 'maia' ? +(P.maia || 1500) : r.key === 'level' ? (P.level ?? 3) : (P[r.key] ?? 0);
-    let idx = r.values.indexOf(cur); if (idx < 0) idx = r.key === 'depth' || r.key === 'elo' ? r.values.length - 1 : 0;
-    const val = el('span', {class: 'v'}, r.fmt(r.values[idx]));
-    const range = el('input', {type: 'range', min: 0, max: r.values.length - 1, step: 1, value: idx, 'aria-label': r.label});
-    range.oninput = () => { val.textContent = r.fmt(r.values[+range.value]); };
-    range.onchange = () => {
-      const v = r.values[+range.value];
-      setOpt($(r.key + i), v, r.fmt(v)); saveSetup(); liveApply(i, r.key); showEst();
-    };
-    pop.append(el('label', {class: 'spr'}, el('span', {class: 'l'}, r.label, r.hint ? el('small', {}, ' ' + r.hint) : null), val, range));
-  }
+  for (const r of rows) pop.append(sliderRow(r, P, v => {
+    if (S.setupDirty) { P[r.key] = v; rate(P); render(); }   /* the setup is already for the next game: change only this game */
+    else { setOpt($(r.key + i), v, r.fmt(v)); saveSetup(); liveApply(i, r.key); seatVis(i); }
+    showEst();
+  }));
   pop.append(el('p', {class: 'hint'}, 'Takes effect from its next move.'));
   showEst();
   pop.hidden = false;
@@ -753,7 +842,11 @@ function renderMoves() {
     for (let j = 0; j < 2; j++) {
       const idx = k + j - off;
       if (idx < 0) mv.append(el('div', {class: 'm' + odd}, '…'));
-      else if (idx < S.sans.length) mv.append(el('div', {class: 'm' + odd + (cur === idx + 1 ? ' cur' : '') + (S.sans[idx].endsWith('?!') ? ' free' : ''), onclick: () => goView(idx + 1)}, ...sanNode(S.sans[idx], (S.startPly + idx) & 1)));
+      else if (idx < S.sans.length) {
+        const fb = SET.assist.feedback && S.fb && S.fb.get(idx + 1), c = fb && CLASSES[fb.cls];
+        const mark = c && !['good', 'excellent'].includes(fb.cls) ? el('span', {class: 'fbm', title: c.name, style: `color:${c.col}`, html: c.icon ? ICONS[c.icon] : esc(c.glyph)}) : null;
+        mv.append(el('div', {class: 'm' + odd + (cur === idx + 1 ? ' cur' : '') + (S.sans[idx].endsWith('?!') ? ' free' : ''), onclick: () => goView(idx + 1)}, ...sanNode(S.sans[idx], (S.startPly + idx) & 1), mark));
+      }
       else mv.append(el('div', {class: odd.trim()}));
     }
   }
@@ -837,7 +930,109 @@ setInterval(() => {
   drawClocks();
 }, 100);
 
-/* ================= result card ================= */
+/* ================= assistance: evaluation bar, move feedback, arrows, engine line ================= */
+const ASSIST = [
+  ['evalbar', 'scales', 'Evaluation bar', 'who is better, according to the engine'],
+  ['feedback', 'chat-teardrop-dots', 'Move feedback', 'best, good, mistake or blunder after your moves'],
+  ['suggest', 'arrow-bend-up-right', 'Suggestion arrows', 'the best move when it is your turn'],
+  ['threat', 'target', 'Threat arrows', 'what your opponent is threatening'],
+  ['lines', 'list-dashes', 'Engine line', 'evaluation and best line under the status'],
+];
+function switchRow(ic, name, sub, checked, onChange, extra = {}) {
+  const inp = el('input', {type: 'checkbox', class: 'switch', ...extra}); inp.checked = !!checked;
+  inp.onchange = () => onChange(inp.checked);
+  return el('label', {class: 'swrow'}, el('span', {class: 'ic', html: ICONS[ic] || ''}), el('span', {class: 't'}, name, sub ? el('small', {}, sub) : null), inp);
+}
+const assistRow = ([k, ic, name, sub]) => switchRow(ic, name, sub, SET.assist[k], v => {
+  SET.assist[k] = v; saveSettings();
+  for (const i of document.querySelectorAll(`input[data-assist="${k}"]`)) i.checked = v;
+  render();
+}, {'data-assist': k});
+function buildAssist() { const box = $('assistSw'); box.innerHTML = ''; for (const a of ASSIST) box.append(assistRow(a)); }
+/* the gear in the move panel: the same options during a game */
+function openOpts() {
+  const pop = $('optsPop');
+  if (!pop.hidden) { pop.hidden = true; return; }
+  pop.innerHTML = '';
+  pop.append(el('div', {class: 'sph'}, el('b', {}, 'Game options')));
+  const box = el('div', {class: 'switches'});
+  for (const a of ASSIST) box.append(assistRow(a));
+  const mirror = (id, ic, name) => switchRow(ic, name, '', $(id).checked, v => { $(id).checked = v; $(id).dispatchEvent(new Event('change')); });
+  box.append(mirror('allowHints', 'lightbulb', 'Hints'), mirror('allowUndo', 'arrow-counter-clockwise', 'Takebacks'), mirror('peek', 'eye', 'Opponent can peek at my arrows'),
+    switchRow('speaker-high', 'Sound', '', SET.appearance.sound !== false, v => { SET.appearance.sound = v; saveSettings(); }));
+  pop.append(box);
+  pop.hidden = false;
+  const a = $('bOpts').getBoundingClientRect(), w = Math.min(340, innerWidth - 16);
+  pop.style.width = w + 'px';
+  pop.style.left = Math.max(8, Math.min(a.right - w, innerWidth - w - 8)) + 'px';
+  pop.style.top = Math.max(8, a.top - pop.offsetHeight - 8) + 'px';
+}
+$('bOpts').onclick = e => { e.stopPropagation(); openOpts(); };
+document.addEventListener('pointerdown', e => { const pop = $('optsPop'); if (!pop.hidden && !pop.contains(e.target) && !e.target.closest('#bOpts')) pop.hidden = true; });
+
+function posAt(k) { const p = new C.Pos(S.startFen, S.variant, S.c960); for (let i = 0; i < k; i++) p.make(S.moves[i]); return p; }
+let assistKey = '', anSeq = 0;
+/* called after every render: (re)analyse when the shown position or the options changed */
+function assistKick() {
+  const A = SET.assist, on = A.evalbar || A.feedback || A.suggest || A.threat || A.lines;
+  const ply = curPly(), key = on ? [S.gameId, ply, S.moves.length, A.evalbar, A.feedback, A.suggest, A.threat, A.lines, S.variant].join(':') : 'off';
+  if (key === assistKey) return;
+  assistKey = key;
+  if (!on || !S.pos || S.inactive || SHOT) { S.an = null; S.threatA = null; drawAssist(); return; }
+  runAssist(++anSeq, S.gameId, ply);
+}
+async function runAssist(seq, gid, ply) {
+  const A = SET.assist, live = ply === S.moves.length, cur = () => seq === anSeq && gid === S.gameId;
+  if (!S.an || S.an.ply !== ply) { S.an = null; S.threatA = null; drawAssist(); }
+  try {
+    const res = await analyze(posAt(ply));
+    if (!cur()) return;
+    S.an = res ? {ply, res} : null; drawAssist();
+    /* feedback on the move that led here, when a person played it */
+    const n = ply, mover = (S.startPly + n - 1) & 1;
+    if (A.feedback && n > 0 && S.seats[mover]?.type === 'human' && !(S.fb || (S.fb = new Map())).has(n)) {
+      const before = await analyze(posAt(n - 1));
+      if (!cur()) return;
+      const cls = classify(before, res, mover, S.moves[n - 1]);
+      if (cls) {
+        const bp = posAt(n - 1), bestSan = before.best ? bp.san(before.best).replace(/\?!$/, '') : '';
+        S.fb.set(n, {cls, best: bestSan, played: S.sans[n - 1].replace(/\?!$/, '')});
+        render();
+      }
+    }
+    if (A.threat && live && !S.over && S.seats[S.pos.turn]?.type === 'human') {
+      const t = await threat(posAt(ply));
+      if (!cur()) return;
+      S.threatA = t ? {ply, ...t} : null; drawAssist();
+    }
+  } catch (e) { console.warn('analysis', e); }
+}
+/* eval bar, engine line, arrows: drawn from the latest analysis */
+function drawAssist() {
+  const A = SET.assist, ply = curPly(), r = S.an && S.an.ply === ply ? S.an.res : null;
+  const bar = $('evalbar');
+  bar.hidden = !A.evalbar;
+  if (A.evalbar) {
+    const w = r ? winPct(r) : 50;
+    bar.classList.toggle('flipped', !!S.flipped); bar.classList.toggle('wait', !r);
+    bar.style.setProperty('--w', w + '%');
+    bar.querySelector('.ev').textContent = r ? fmtEval(r) : '';
+    bar.classList.toggle('blackahead', w < 50);
+  }
+  const line = $('eline');
+  line.hidden = !A.lines;
+  if (A.lines) {
+    if (!r) line.textContent = S.an === null && (A.lines) ? 'analysing…' : '';
+    else {
+      const q = posAt(ply), sans = [];
+      const pv = r.pv && r.pv.length ? r.pv : [];
+      if (pv.length) { for (const u of pv.slice(0, 7)) { const m = q.fromUci(u); if (!m) break; sans.push(q.san(m).replace(/\?!$/, '')); q.make(m); } }
+      else if (r.best) sans.push(q.san(r.best).replace(/\?!$/, ''));
+      line.textContent = `${fmtEval(r)}  ${sans.join(' ')}  · ${r.by}`;
+    }
+  }
+  renderShapes();
+}
 function renderResult() {
   const box = $('result');
   if (!S.over || S.resultClosed || S.viewPly != null) { box.hidden = true; return; }
@@ -880,10 +1075,17 @@ function renderShapes() {
   for (const c of S.circles) { const [x, y] = sqXY(c.s, S.flipped); h += `<circle cx="${x}" cy="${y}" r=".44" fill="none" stroke="${ARROW_COL[c.c]}" stroke-width=".08" opacity=".8"/>`; }
   const list = S.arrows.slice();
   if (S.hint && S.viewPly == null) list.push({f: S.hint.f, t: S.hint.t, c: 'h'});
+  /* assistance arrows: the best move on your turn, and what the opponent threatens */
+  const live = S.viewPly == null && !S.over && S.pos && S.seats[S.pos.turn]?.type === 'human';
+  if (live && SET.assist.suggest && S.an && S.an.ply === S.moves.length && S.an.res.best && !S.hint) {
+    const m = S.an.res.best, to = (m >> 17) & C.FL_CASTLE ? (m & 0x70) + (((m >> 7) & 127) > (m & 127) ? 6 : 2) : (m >> 7) & 127;
+    list.push({f: m & 127, t: to, c: 's'});
+  }
+  if (live && SET.assist.threat && S.threatA && S.threatA.ply === S.moves.length) list.push({f: S.threatA.f, t: S.threatA.t, c: 't'});
   if (adraw && adraw.to !== adraw.from) list.push({f: adraw.from, t: adraw.to, c: adraw.col, tmp: true});
   for (const a of list) {
-    const {line, head} = arrowGeom(a.f, a.t, S.flipped), col = a.c === 'h' ? '#2f7fd8' : ARROW_COL[a.c];
-    h += `<g opacity="${a.tmp ? .55 : .8}"><polyline points="${P(line)}" fill="none" stroke="${col}" stroke-width=".16" stroke-linejoin="round"/><polygon points="${P(head)}" fill="${col}"/></g>`;
+    const {line, head} = arrowGeom(a.f, a.t, S.flipped), col = {h: '#2f7fd8', s: '#3f9fe0', t: '#e0473a'}[a.c] || ARROW_COL[a.c];
+    h += `<g opacity="${a.tmp ? .55 : a.c === 's' || a.c === 't' ? .62 : .8}"><polyline points="${P(line)}" fill="none" stroke="${col}" stroke-width=".16" stroke-linejoin="round"/><polygon points="${P(head)}" fill="${col}"/></g>`;
   }
   svg.innerHTML = h;
 }
@@ -1007,7 +1209,7 @@ async function tryRestore() {
     for (const i of [0, 1]) writeSeat(i, d.seats[i]);
     $('variant').value = variant; $('chaos').checked = !!d.chaos; seatVis(0); seatVis(1);
     S.gameId++; cancelThinking(); cancelPremove();
-    S.gameKey = d.gameKey || newKey(); S.replay = null;
+    S.gameKey = d.gameKey || newKey(); S.replay = null; S.setupDirty = false; S.fb = new Map(); S.an = null;
     S.seats = d.seats.map(seatFrom).map(P => rate(P));
     S.clock = d.clock ? {...d.clock, ms: d.clock.ms.slice(), last: performance.now()} : null; S.resultClosed = false; S.variant = variant; S.c960 = c960; S.startFen = fen; S.startName = d.startName || ''; S.chaos = !!d.chaos;
     S.pos = pos; S.startPly = (() => { const q = new C.Pos(fen, variant, c960); return (q.full - 1) * 2 + q.turn; })();
@@ -1066,7 +1268,12 @@ async function copy(txt, what) {
 }
 $('bNew').onclick = () => { startGame(); showTab('play'); };
 $('tcLLM').onchange = saveSetup;
-$('bSwap').onclick = () => { swapSeats(); saveSetup(); applySeat(0); applySeat(1); };
+$('bSwap').onclick = () => {
+  swapSeats(); saveSetup();
+  if (!S.moves.length || S.over) { applySeat(0); applySeat(1); }
+  else { S.setupDirty = true; toast('The sides swap with the next game'); }
+  renderSidePick(); renderMatchup();
+};
 $('bUndo').onclick = undo;
 $('bFlip').onclick = () => { S.flipped = !S.flipped; render(); };
 $('bResign').onclick = resign;
@@ -1110,7 +1317,7 @@ for (const e of document.querySelectorAll('[data-ic]')) e.insertAdjacentHTML('af
   S.chatOn = SET.chat.enabled !== false;
   preloadCanvasPieces();
   if (relayOK) { await refreshEngines(); if (!SHOT) await hello(); }
-  buildSeat(0); buildSeat(1); buildTcPick();
+  buildSeat(0); buildSeat(1); buildTcPick(); buildAssist();
   loadSetup();
   S.peek = $('peek').checked;
   initChat();

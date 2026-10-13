@@ -460,8 +460,9 @@ class Engines:
             for k in [k for k in self.procs if k == prefix or k.startswith(prefix + "|")]:
                 self.procs.pop(k).quit()
 
-    def proc(self, e, weights):
-        key = e["id"] + ("|" + weights if weights else "")
+    def proc(self, e, weights, slot=None):
+        # slot: a second copy of the engine (the analysis for the eval bar runs beside the playing engine)
+        key = e["id"] + ("|" + weights if weights else "") + ("|" + slot if slot else "")
         with self.plock:
             p = self.procs.get(key)
             if p and p.alive():
@@ -488,7 +489,7 @@ class Engines:
         if variant not in e.get("variants", ["chess"]):
             raise ValueError(f"{e['name']} does not play {variant}")
         for attempt in range(2):
-            p = self.proc(e, weights)
+            p = self.proc(e, weights, "analysis" if req.get("slot") == "analysis" else None)
             try:
                 with p.lock:
                     opts = p.info.get("options", {})
@@ -500,6 +501,8 @@ class Engines:
                         p.setoption("Threads", req.get("threads") or max(1, min(4, (os.cpu_count() or 2) // 2)))
                     if "Hash" in opts and e["kind"] in ("elo", "time"):
                         p.setoption("Hash", 128)
+                    if "OwnBook" in opts and req.get("slot") == "analysis":
+                        p.setoption("OwnBook", False)   # book moves come without a score
                     elo = req.get("elo")
                     if "UCI_LimitStrength" in opts:
                         p.setoption("UCI_LimitStrength", bool(elo))

@@ -13,6 +13,8 @@ export const SET = {
   modelPersonality: {},
   providers: [],
   profile: {rating: 1200, games: 0},
+  /* assistance while playing (chess.com-style options; can be switched before and during a game) */
+  assist: {evalbar: false, feedback: false, suggest: false, threat: false, lines: false},
 };
 export const onSettings = {changed: null};   // app.js: refresh seat menus etc.
 
@@ -29,6 +31,7 @@ export async function loadSettings() {
     if (s.modelPersonality) SET.modelPersonality = s.modelPersonality;
     SET.providers = s.providers || [];
     if (s.profile && s.profile.rating) SET.profile = s.profile;
+    if (s.assist) Object.assign(SET.assist, s.assist);
   } catch (e) { console.warn('settings', e); }
   applyAppearance(SET.appearance);
 }
@@ -38,7 +41,7 @@ export function saveSettings(now) {
   const go = async () => {
     try {
       const body = {appearance: SET.appearance, chat: SET.chat, personalities: SET.personalities, defaultPersonality: SET.defaultPersonality,
-        modelPersonality: SET.modelPersonality, profile: SET.profile, providers: SET.providers.map(p => ({id: p.id, base: p.base, name: p.name, kind: p.kind, custom: p.custom, key: p._key || '', clearKey: p._clear}))};
+        modelPersonality: SET.modelPersonality, profile: SET.profile, assist: SET.assist, providers: SET.providers.map(p => ({id: p.id, base: p.base, name: p.name, kind: p.kind, custom: p.custom, key: p._key || '', clearKey: p._clear}))};
       const s = await api('/api/settings', body);
       SET.providers = s.providers;
       if (onSettings.changed) onSettings.changed();

@@ -41,6 +41,7 @@ export function seatName(i) {
     case 'human': return humanCount() === 2 ? SIDE[i] : 'You';
     case 'engine': return engineName(P);
     case 'agent': return S.config.agent || 'Agent';
+    case 'puzzle': return 'Puzzle';
     default: return shortModel(P);
   }
 }

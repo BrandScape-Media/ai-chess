@@ -7,7 +7,8 @@ import {SET, loadSettings, saveSettings, openSettings, refreshEngines, onSetting
 import {askEngine, askLLM, cancelThinking, resolveIllegal, arrowGeom, sqXY, ARROW_COL, bestMoveHint} from './players.js';
 import {ICONS, icon} from './icons.js';
 import {BOTS} from './historic.js';
-import {analyze, threat, classify, winPct, fmtEval, CLASSES} from './analysis.js';
+import {initPuzzles, puzzleMove, renderPanel as renderPuzzles} from './puzzles.js';
+import {analyze, threat, classify, winPct, fmtEval, CLASSES, moveAccuracy, isSacrifice} from './analysis.js';
 import {initChat, assignPersonas, onGameStart, onMove, onGameOver, onTakeback, say, sysMsg, chatVisible, restoreChat, showTab} from './chat.js';
 
 const VAL = [0, 1, 3, 3, 5, 9, 0];
@@ -363,6 +364,7 @@ function finish(over) {
     saveSettings();
   }
   recordGame(over);
+  if (humanSide() >= 0 && S.moves.length >= 4 && !S.replay) reviewGame(S.gameId);
   onGameOver(over);
 }
 
@@ -429,7 +431,7 @@ function replayGame(g) {
   S.variant = g.variant | 0; S.c960 = !!g.c960; S.startFen = g.startFen || C.START_FEN; S.startName = g.startName || ''; S.chaos = false;
   S.pos = pos; S.startPly = (() => { const q = new C.Pos(S.startFen, S.variant, S.c960); return (q.full - 1) * 2 + q.turn; })();
   S.moves = g.movesRaw.slice(); S.sans = sans; S.lastMove = S.moves[S.moves.length - 1];
-  S.setupDirty = false; S.fb = new Map(); S.explore = null;
+  S.setupDirty = false; S.fb = new Map(); S.explore = null; S.pz = null; S.pzRun = null;
   S.over = {result: g.result, reason: g.reason}; S.resultClosed = true; S.resultDelta = g.delta || null; S.replay = g.id; S.gameKey = g.id;
   S.clock = null; S.paused = false; S.say = ''; S.sayBy = -1; S.info = ''; S.arrows = []; S.circles = []; S.anim = null; S.hint = null;
   S.flipped = g.players[1].type === 'human' && g.players[0].type !== 'human';
@@ -526,6 +528,7 @@ function startGame() {
     if (P.type === 'llm' && !P.model) { toast(`No model chosen for ${SIDE[i]}: the built-in engine plays instead`); Object.assign(P, {type: 'engine', engine: 'builtin', level: 3}); }
   }
   S.gameId++; cancelThinking();
+  S.pz = null; S.pzRun = null;
   S.gameKey = newKey(); S.replay = null; S.setupDirty = false;
   for (const P of seats) rate(P, true);
   const tc = timeControl();
@@ -554,6 +557,7 @@ function afterMove() { checkOver(); render(); syncRelay(); schedule(); runPremov
    In chaos mode (with illegal moves allowed for you) it is played even when it is no longer legal. */
 const humanSide = () => humanCount() === 1 ? S.seats.findIndex(P => P.type === 'human') : -1;
 function canPremove() {
+  if (S.pz) return false;
   const me = humanSide();
   return me >= 0 && SET.appearance.premoves !== false && !S.over && S.viewPly == null && !S.inactive && S.pos.turn !== me;
 }
@@ -607,6 +611,7 @@ function play(m, opts = {}) {
   S.anim = opts.dragged ? null : m; S.hint = null;
   clearSel();
   tick(!!captured);
+  if (S.pz) { S.circles = []; render(); puzzleMove(m, mover); return; }   /* puzzles check the move themselves */
   if (P.type !== 'human' && (S.arrows.length || S.circles.length)) { S.arrows = []; S.circles = []; }   /* the opponent answered: your sketch is stale */
   onMove({mover, m, captured, check: S.pos.inCheck(), free: !!(fl & C.FL_FREE), prevEval: prevEval[mover ^ 1]});
   afterMove();
@@ -790,7 +795,8 @@ function render() {
   const bub = $('bubble');
   if (S.sayBy === -3) { if (S.fbShown !== curKey()) { bub.hidden = true; bub.className = ''; S.say = ''; S.sayBy = -1; } }   /* move feedback */
   else if (S.say && (S.sayBy >= 0 || S.sayBy === -2)) { bub.className = ''; bub.hidden = false; bub.innerHTML = ''; bub.append(el('b', {}, (S.sayBy === -2 ? 'Hint' : seatName(S.sayBy)) + ': '), S.say); } else bub.hidden = true;
-  $('bUndo').disabled = !S.moves.length || !!S.replay;
+  $('bUndo').disabled = !S.moves.length || !!S.replay || !!S.pz;
+  $('bResign').hidden = !!S.pz;
   const hc = humanCount();
   label($('bResign'), 'flag', hc ? 'Resign' : 'Stop');
   $('bResign').disabled = !!S.over || (!S.moves.length && hc > 0);
@@ -948,6 +954,7 @@ const hue = s => { let h = 0; for (const ch of s || '') h = (h * 31 + ch.charCod
 function avatarOf(P) {
   if (!P || P.type === 'human') return ['user-fill', '#4a453f', 'avatars/human.webp'];
   if (P.type === 'agent') return ['sparkle-fill', '#4a453f', 'avatars/logo.webp'];
+  if (P.type === 'puzzle') return ['puzzle-piece', '#5e4733', 'avatars/mode-puzzles.webp'];
   if (P.type === 'llm') return ['robot-fill', `hsl(${hue(P.model)} 18% 34%)`, 'avatars/llm.webp'];
   const id = P.engine || 'builtin', e = engineEntry(id) || {}, key = AVATAR[id] ? id : AVATAR[e.catalog] ? e.catalog : null;
   if (key) return [AVATAR[key][0], AVATAR[key][1], `avatars/${key}.webp`];
@@ -1120,6 +1127,7 @@ function posAt(k) { const p = new C.Pos(S.startFen, S.variant, S.c960); for (let
 let assistKey = '', anSeq = 0;
 /* which aids are on: your choices while playing; in a review the evaluation, feedback and suggestions are always on */
 function assistOn() {
+  if (S.pz) return {};   /* no engine help while solving puzzles */
   const A = SET.assist, rv = reviewing();
   return {evalbar: A.evalbar || rv, feedback: A.feedback || rv, suggest: A.suggest || rv, threat: A.threat && !rv, lines: A.lines, review: rv};
 }
@@ -1196,30 +1204,102 @@ function drawAssist() {
     }
   }
   renderShapes();
-}function renderResult() {
+}
+/* ================= result card and the quick review behind it ================= */
+/* when a game against the computer ends, every position is analysed briefly: accuracy and the move classes
+   fill in on the card (the three best categories, like chess sites do), and the review board opens on the key moment */
+async function reviewGame(gid) {
+  const me = humanSide(); if (me < 0) return;
+  const n = S.moves.length, res = [];
+  S.review = {gid, me, done: 0, total: n + 1, counts: {}, acc: null, key: null};
+  renderReviewStats();
+  for (let k = 0; k <= n; k++) {
+    if (gid !== S.gameId) return;
+    res[k] = await analyze(posAt(k), 160);
+    S.review.done = k + 1;
+    if (k % 6 === 0) renderReviewStats();
+  }
+  if (gid !== S.gameId) return;
+  const fb = S.fb || (S.fb = new Map()), counts = {}, accs = [];
+  let key = null;
+  for (let k = 1; k <= n; k++) {
+    const prev = posAt(k - 1), m = S.moves[k - 1], mover = prev.turn, played = S.sans[k - 1].replace(/\?!$/, '');
+    let cls;
+    if ((m >> 17) & C.FL_FREE) cls = 'illegal';
+    else {
+      cls = classify(res[k - 1], res[k], mover, m);
+      if (!cls) continue;
+      const before = fb.get(k - 1)?.cls;
+      if (cls === 'best' && isSacrifice(prev, m) && (mover === 0 ? winPct(res[k]) : 100 - winPct(res[k])) >= 45) cls = 'brilliant';
+      else if (cls === 'best' && (before === 'mistake' || before === 'blunder')) cls = 'great';   /* punished the opponent's slip */
+      if (mover === me && res[k - 1] && res[k]) accs.push(moveAccuracy(res[k - 1], res[k], mover));
+    }
+    fb.set(k, {cls, best: res[k - 1]?.best ? prev.san(res[k - 1].best).replace(/\?!$/, '') : '', played});
+    if (mover === me) { counts[cls] = (counts[cls] || 0) + 1; if (key == null && (cls === 'blunder' || cls === 'mistake')) key = k; }
+  }
+  /* accuracy: mean of the move accuracies, pulled toward the harmonic mean so one blunder still shows */
+  const mean = accs.length ? accs.reduce((a, b) => a + b, 0) / accs.length : null;
+  const harm = accs.length ? accs.length / accs.reduce((a, b) => a + 1 / Math.max(1, b), 0) : null;
+  Object.assign(S.review, {counts, acc: mean == null ? null : (mean + harm) / 2, key, ready: true});
+  renderReviewStats(); render();
+}
+const COUNT_ORDER = ['brilliant', 'great', 'best', 'excellent', 'good'];
+function renderReviewStats() {
+  const box = document.querySelector('#result .rstats'), acc = document.querySelector('#result .racc');
+  if (!box || !S.review || S.review.gid !== S.gameId) return;
+  const R = S.review;
+  if (acc) acc.innerHTML = R.ready && R.acc != null ? `<b>${R.acc.toFixed(1)}</b><small>Accuracy</small>` : `<b class="skel">--.-</b><small>Accuracy</small>`;
+  box.innerHTML = '';
+  if (!R.ready) {
+    box.classList.add('loading');
+    for (let i = 0; i < 3; i++) box.append(el('div', {class: 'rc skel'}, el('b', {}, ' '), el('small', {}, i === 1 ? `Reviewing ${Math.round(R.done / R.total * 100)}%` : ' ')));
+    return;
+  }
+  box.classList.remove('loading');
+  /* the three best categories you actually played (chess sites keep this positive and short) */
+  let pick = COUNT_ORDER.filter(k => R.counts[k]).slice(0, 3);
+  if (pick.length < 3) pick = pick.concat(['inaccuracy', 'mistake', 'blunder'].filter(k => R.counts[k]).slice(0, 3 - pick.length));
+  for (const k of pick) {
+    const c = CLASSES[k];
+    box.append(el('div', {class: 'rc', title: c.name},
+      el('b', {}, el('span', {class: 'rci', style: `background:${c.col}`, html: c.icon ? ICONS[c.icon] : esc(c.glyph)}), String(R.counts[k])), el('small', {style: `color:${c.col}`}, c.name)));
+  }
+}
+function coachLine(won, draw, R) {
+  const acc = R && R.ready ? R.acc : null;
+  if (won) return acc != null && acc >= 85 ? 'Clean game. You barely gave anything away.' : 'A win is a win. Let\'s look at where it could have been easier.';
+  if (draw) return 'A fair result. Let\'s see where either side could have pushed for more.';
+  return R && R.key ? 'That game didn\'t go your way, but there\'s a clear turning point. Let\'s review it together.' : 'That game didn\'t go your way. Let\'s review it and find what to improve.';
+}
+function renderResult() {
   const box = $('result');
-  if (!S.over || S.resultClosed || S.viewPly != null) { box.hidden = true; return; }
-  if (!box.hidden && box.dataset.game === String(S.gameId)) return;
+  if (!S.over || S.resultClosed || S.viewPly != null || S.explore) { box.hidden = true; return; }
+  if (!box.hidden && box.dataset.game === String(S.gameId)) { renderReviewStats(); return; }
   const o = S.over, w = o.result === '1-0' ? 0 : o.result === '0-1' ? 1 : -1, hum = [0, 1].filter(i => S.seats[i].type === 'human');
-  let title = w < 0 ? 'Draw' : SIDE[w] + ' wins', ic = w < 0 ? 'handshake' : 'trophy';
-  if (o.result === '*') { title = 'Game stopped'; ic = 'flag'; }
-  else if (hum.length === 1 && w >= 0) { const won = S.seats[w].type === 'human'; title = won ? 'You won' : 'You lost'; ic = won ? 'trophy' : 'flag'; }
-  const d = S.resultDelta;
+  let title = w < 0 ? 'Draw' : SIDE[w] + ' won';
+  if (o.result === '*') title = 'Game stopped';
+  else if (hum.length === 1 && w >= 0) title = S.seats[w].type === 'human' ? 'You won' : 'You lost';
+  const won = title === 'You won', d = S.resultDelta, rv = S.review && S.review.gid === S.gameId;
+  const reason = o.result === '*' ? '' : o.reason === 'timeout' ? 'on time' : 'by ' + o.reason;
   box.dataset.game = String(S.gameId);
   box.innerHTML = '';
-  const card = el('div', {class: 'card'},
-    el('div', {class: 'head'}, el('span', {class: 'ic'}), el('h2', {}, title), el('p', {}, o.result === '*' ? '' : 'by ' + o.reason)),
-    d ? el('div', {class: 'delta'}, 'Your rating ', el('b', {}, String(d.rating)), ' ', el('span', {class: d.delta >= 0 ? 'up' : 'down'}, (d.delta >= 0 ? '+' : '') + d.delta)) : null,
+  const close = el('button', {class: 'x', title: 'Close', 'aria-label': 'Close', html: icon('x'), onclick: () => { S.resultClosed = true; render(); }});
+  const rating = d ? el('div', {class: 'rnum'}, el('b', {}, String(d.rating), el('span', {class: d.delta >= 0 ? 'up' : 'down'}, (d.delta >= 0 ? ' +' : ' ') + d.delta)), el('small', {}, 'Rating')) : null;
+  const card = el('div', {class: 'card' + (won ? ' won' : '')}, close,
+    el('div', {class: 'head'}, el('h2', {}, title), el('p', {}, reason)),
+    rating || rv ? el('div', {class: 'rrow'}, rating, rv ? el('div', {class: 'rnum racc'}) : null) : null,
+    rv ? el('div', {class: 'coach'}, el('img', {src: 'avatars/coach.webp', alt: ''}), el('p', {class: 'say'}, coachLine(won, w < 0, S.review))) : null,
+    rv ? el('div', {class: 'rstats'}) : null,
     el('div', {class: 'btns'},
-      el('button', {class: 'primary', onclick: () => startGame()}, 'Rematch'),
-      el('button', {onclick: () => { S.resultClosed = true; showTab('new'); render(); }}, 'New game'),
-      el('button', {onclick: () => { S.resultClosed = true; render(); }}, 'Review the game')));
-  card.querySelector('.ic').innerHTML = ICONS[ic] || '';
+      rv ? el('button', {class: 'primary', html: icon('star-fill') + '<span>Game review</span>', onclick: () => { S.resultClosed = true; goView(S.review?.key || 1); }}) : null,
+      el('div', {class: 'two'},
+        el('button', {onclick: () => { S.resultClosed = true; showTab('new'); render(); }}, 'New game'),
+        el('button', {class: rv ? '' : 'primary', onclick: () => startGame()}, 'Rematch'))));
   box.append(card);
   box.hidden = false;
-  if (title === 'You won' && !S.replay) confetti();
+  renderReviewStats();
+  if (won && !S.replay) confetti();
 }
-
 /* a short burst of confetti over the board when you win (skipped with reduced motion or when switched off) */
 function confetti() {
   if (SET.appearance.confetti === false || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -1396,6 +1476,7 @@ function relayState() {
 }
 let syncT = 0;
 function syncRelay() {
+  if (S.pz) return;   /* puzzles never replace the saved game */
   if (!relayOK || !S.pos || S.inactive || SHOT) return;
   clearTimeout(syncT);
   syncT = setTimeout(async () => {
@@ -1417,7 +1498,7 @@ async function tryRestore() {
     for (const i of [0, 1]) writeSeat(i, d.seats[i]);
     $('variant').value = variant; $('chaos').checked = !!d.chaos; seatVis(0); seatVis(1);
     S.gameId++; cancelThinking(); cancelPremove();
-    S.gameKey = d.gameKey || newKey(); S.replay = null; S.setupDirty = false; S.fb = new Map(); S.an = null; S.explore = null;
+    S.gameKey = d.gameKey || newKey(); S.replay = null; S.setupDirty = false; S.fb = new Map(); S.an = null; S.explore = null; S.pz = null; S.pzRun = null;
     S.seats = d.seats.map(seatFrom).map(P => rate(P));
     S.clock = d.clock ? {...d.clock, ms: d.clock.ms.slice(), last: performance.now()} : null; S.resultClosed = false; S.variant = variant; S.c960 = c960; S.startFen = fen; S.startName = d.startName || ''; S.chaos = !!d.chaos;
     S.pos = pos; S.startPly = (() => { const q = new C.Pos(fen, variant, c960); return (q.full - 1) * 2 + q.turn; })();
@@ -1517,8 +1598,32 @@ onSettings.changed = () => {
   render();
 };
 
+/* ================= puzzles: the board side ================= */
+/* a puzzle is a small game on the main board: you against the "Puzzle" seat, whose moves come from the solution */
+initPuzzles({
+  board(fen) {
+    S.gameId++; cancelThinking(); cancelPremove();
+    const pos = new C.Pos(fen, 0, false);
+    S.gameKey = newKey(); S.replay = null; S.setupDirty = false; S.explore = null; S.review = null;
+    S.variant = 0; S.c960 = false; S.startFen = fen; S.startName = 'Puzzle'; S.chaos = false; S.clock = null;
+    S.pos = pos; S.startPly = (pos.full - 1) * 2 + pos.turn;
+    S.moves = []; S.sans = []; S.lastMove = 0; S.over = null; S.viewPly = null; S.say = ''; S.sayBy = -1; S.info = ''; S.paused = false;
+    S.lastOn = new Map(); S.arrows = []; S.circles = []; S.anim = null; S.hint = null; S.fb = new Map(); S.an = null; S.threatA = null; S.resultClosed = true;
+    clearSel();
+  },
+  setSides(me) {
+    S.seats = [0, 1].map(i => Object.assign(seatFrom({type: i === me ? 'human' : 'puzzle'}), {rating: i === me ? SET.puzzles.rating : null}));
+    S.flipped = me === 1; render();
+  },
+  play: m => play(m),
+  render: () => render(),
+  takeBack() { S.pos.unmake(); S.moves.pop(); S.sans.pop(); S.lastMove = S.moves.length ? S.moves[S.moves.length - 1] : 0; clearSel(); render(); },
+  sound: cap => tick(cap),
+  async backToGame() { if (!(await tryRestore())) startGame(); showTab('play'); },
+});
+
 /* ================= boot ================= */
-Object.assign(hooks, {play, render, afterMove, schedule, sync: () => syncRelay(), history: renderHistory, newTab: () => showMode('hub')});
+Object.assign(hooks, {play, render, afterMove, schedule, sync: () => syncRelay(), history: renderHistory, newTab: () => showMode('hub'), puzzles: () => renderPuzzles()});
 for (const e of document.querySelectorAll('[data-ic]')) e.insertAdjacentHTML('afterbegin', icon(e.dataset.ic));
 (async () => {
   if (relayOK) { try { S.config = await api('/api/config'); } catch (e) {} }

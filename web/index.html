@@ -16,6 +16,7 @@
     <a class="brand" href="#" data-tab="play"><img src="avatars/logo.webp" alt=""><span>AI Chess</span></a>
     <button class="railbtn" data-tab="play" data-ic="play"><span class="lbl">Play</span></button>
     <button class="railbtn" data-tab="new" data-ic="plus"><span class="lbl">New game</span></button>
+    <button class="railbtn" data-tab="puzzles" data-ic="puzzle-piece"><span class="lbl">Puzzles</span></button>
     <button class="railbtn" data-tab="history" data-ic="clock-counter-clockwise"><span class="lbl">History</span></button>
     <button class="railbtn" id="bSettings" data-ic="gear-six"><span class="lbl">Settings</span></button>
     <span class="grow"></span>
@@ -149,6 +150,10 @@
         <div class="hint" id="hint"></div>
       </div>
       <div class="startbar"><button class="primary" id="bNew" data-ic="play">Start game</button></div>
+    </section>
+
+    <section class="tab puzzles" id="tab-puzzles" hidden>
+      <div class="setupBody" id="pzBody"></div>
     </section>
 
     <section class="tab history" id="tab-history" hidden>

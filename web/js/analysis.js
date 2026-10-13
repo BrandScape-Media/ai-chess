@@ -10,7 +10,7 @@ const cache = new Map();   /* fen -> {white, mate, best, pv} (white = centipawns
 let worker = null, wid = 0;
 const pending = new Map();
 
-function builtin(fen) {
+function builtin(fen, ms = 450) {
   return new Promise(resolve => {
     if (!worker) {
       worker = new Worker(new URL('./engine-worker.js', import.meta.url), {type: 'module'});
@@ -18,7 +18,7 @@ function builtin(fen) {
       worker.onerror = () => { for (const r of pending.values()) r(null); pending.clear(); worker = null; };
     }
     const id = ++wid; pending.set(id, resolve);
-    worker.postMessage({id, fen, variant: S.variant, c960: S.c960, moves: [], level: 3, maxMs: 450});
+    worker.postMessage({id, fen, variant: S.variant, c960: S.c960, moves: [], level: 3, maxMs: ms});
   });
 }
 function engineFor() {
@@ -49,7 +49,7 @@ export async function analyze(p, ms = 350) {
     } catch (err) { /* fall back to the built-in engine */ }
   }
   if (!out) {
-    const r = await builtin(p.fen());
+    const r = await builtin(p.fen(), Math.max(200, ms));
     if (r && r.move) out = {white: r.mate != null ? null : r.score, mate: r.mate, best: r.move, pv: [], by: 'built-in engine'};
   }
   if (out) { cache.set(key, out); if (cache.size > 400) cache.delete(cache.keys().next().value); }
@@ -80,6 +80,8 @@ export function winPct(r) {
 }
 /* classify a move from the analysis before and after it (win-chance drop for the mover, as lichess does) */
 export const CLASSES = {
+  brilliant: {name: 'Brilliant', glyph: '!!', col: '#3fb6a8'},
+  great: {name: 'Great', glyph: '!', col: '#6a9fd8'},
   best: {name: 'Best move', icon: 'star-fill', col: '#5fb85a'},
   excellent: {name: 'Excellent', icon: 'thumbs-up-fill', col: '#5fb85a'},
   good: {name: 'Good', icon: 'check', col: '#8fae7a'},
@@ -101,6 +103,22 @@ export function classify(before, after, mover, move) {
   if (drop < 12) return 'inaccuracy';
   if (drop < 22) return 'mistake';
   return 'blunder';
+}
+/* lichess move accuracy from the drop in win chance (0-100) */
+export function moveAccuracy(before, after, mover) {
+  const wb = mover === 0 ? winPct(before) : 100 - winPct(before), wa = mover === 0 ? winPct(after) : 100 - winPct(after);
+  return Math.max(0, Math.min(100, 103.1668 * Math.exp(-0.04354 * Math.max(0, wb - wa)) - 3.1669));
+}
+/* a "brilliant" move is a sound sacrifice: the best move, it leaves a piece (knight or more) hanging, and you are not losing after it */
+export function isSacrifice(prev, m) {
+  const from = m & 127, to = (m >> 7) & 127, pc = prev.b[from], t = pc & 7;
+  if (t < C.KNIGHT || t === C.KING || ((m >> 14) & 7)) return false;
+  const victim = prev.b[to];
+  let q; try { q = new C.Pos(prev.fen(), S.variant, S.c960); } catch (e) { return false; }
+  if (victim && [0, 1, 3, 3, 5, 9][victim & 7] >= [0, 1, 3, 3, 5, 9][t]) return false;   /* an even or winning trade */
+  q.make(m);
+  const me = prev.turn;
+  return q.isAttacked(to, me ^ 1) && !q.isAttacked(to, me);
 }
 export function fmtEval(r) {
   if (!r) return '';

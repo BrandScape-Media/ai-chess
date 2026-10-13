@@ -75,6 +75,8 @@ button,select,input,textarea{font:inherit;color:inherit}
 .sq.hill::before{content:"";position:absolute;inset:0;background:#34b39a33}
 .sq.last.hill::before{background:var(--lastmove)}
 .sq.sel::before{content:"";position:absolute;inset:0;background:#4fb38f80}
+.sq.pre::before{content:"";position:absolute;inset:0;background:#d6503f8c}
+.sq.presel::before{content:"";position:absolute;inset:0;background:#d6503f66}
 .sq.chk::before{content:"";position:absolute;inset:0;background:radial-gradient(circle,#ff3b2f 0%,#ff3b2f88 38%,#ff3b2f00 72%)}
 .sq .co{position:absolute;font-size:calc(var(--sq)*.16);font-weight:650;opacity:.9;pointer-events:none;color:var(--coordl);z-index:1}
 .sq.d .co{color:var(--coordd)}
@@ -188,6 +190,54 @@ input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;margin:0}
 .vs{display:flex;align-items:center;gap:10px;margin:-4px 0;padding-left:4px}
 .vs .chk{color:var(--muted);font-size:12.5px}
 .group{padding-top:4px}
+.gh{color:var(--muted);font-size:13px;margin:0 0 8px 2px}
+/* time controls, grouped like on chess sites */
+.tcpick{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+.tcrow{display:grid;grid-template-columns:70px repeat(3,1fr);gap:6px;align-items:center}
+.tch{display:flex;align-items:center;gap:5px;color:var(--muted);font-size:12.5px;font-weight:550}
+.tch .ic svg{width:15px;height:15px}
+.panel button.tcb{padding:8px 4px;background:var(--panel2);font-weight:600;font-variant-numeric:tabular-nums;border:1px solid transparent}
+.panel button.tcb.on{background:var(--accent-soft);border-color:var(--accent);color:#fff}
+
+/* change an engine's strength during a game */
+#live{display:flex;flex-direction:column;gap:6px;padding:10px 12px 0}
+.liverow{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:center}
+.liverow .lv{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12.5px;white-space:nowrap}
+.liverow .lv .ic svg{width:15px;height:15px}
+.liverow select{width:100%;min-width:0;padding:5px 8px;font-size:13px}
+
+/* game history */
+.history{overflow:hidden}
+.histhead{padding:14px 16px 10px;border-bottom:1px solid var(--line)}
+.histhead h2{margin:0 0 4px;font-size:15.5px;font-weight:650;letter-spacing:-.01em}
+#histStats{display:flex;gap:14px;color:var(--muted);font-size:12.5px;font-variant-numeric:tabular-nums}
+#histStats b{color:var(--text);font-weight:650}
+#histList{flex:1;min-height:0;overflow:auto;padding:6px 8px}
+#histList .empty{color:var(--faint);padding:30px 18px;text-align:center;font-size:13px}
+#histList .empty p{margin:0 0 6px}
+.hrow{display:grid;grid-template-columns:38px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 8px;border-radius:var(--r-ctl);transition:background .15s}
+.hrow+.hrow{border-top:1px solid #ffffff08}
+.hrow:hover{background:#ffffff06}
+.res{display:grid;place-items:center;height:30px;border-radius:var(--r-ctl);font-weight:700;font-size:13px;font-variant-numeric:tabular-nums;background:var(--panel3);color:var(--muted)}
+.res.win{background:#34b39a2e;color:var(--accent-hi)}
+.res.loss{background:var(--warn-soft);color:#f0a497}
+.res.side{font-size:10.5px}
+.hplayers{display:flex;flex-direction:column;gap:1px;min-width:0;font-weight:550;font-size:13.5px}
+.hvs{display:none}
+.hp{display:flex;align-items:center;gap:5px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hp.won{color:#fff}
+.hp small{color:var(--muted);font-weight:500}
+.hp .dot{width:9px;height:9px;border-radius:2px;flex:none;border:1px solid #ffffff40}
+.hp .dot.w{background:#eee}.hp .dot.b{background:#222}
+.hvs{color:var(--faint);font-size:11.5px}
+.hwhat{color:var(--text);font-size:12.5px;margin-top:1px}
+.hwhat .up{color:var(--accent-hi);font-variant-numeric:tabular-nums}.hwhat .down{color:#f0a497;font-variant-numeric:tabular-nums}
+.hmeta{color:var(--faint);font-size:11.5px}
+.hbtns{display:flex;gap:4px}
+.hbtns .ib{min-width:30px;height:30px;padding:0 6px;background:transparent;color:var(--muted)}
+.hbtns .ib:hover{background:var(--panel3);color:var(--text)}
+.hbtns .ib svg{width:16px;height:16px}
+.histfoot{display:flex;justify-content:center;padding:14px 0 6px}
 .toggles{display:flex;flex-direction:column;gap:9px;padding:12px 2px 0;border-top:1px solid var(--line)}
 .startbar{padding:12px 14px;border-top:1px solid var(--line);background:var(--panel)}
 .startbar .primary{width:100%;padding:12px;font-size:15px}
@@ -228,11 +278,28 @@ dialog#settings::backdrop{background:#05070999}
 .dlg section h4{margin:20px 0 9px;font-size:13px;color:var(--muted);font-weight:600}
 .grid2{display:grid;grid-template-columns:150px 1fr;gap:10px 12px;align-items:center}
 .grid2>label{color:var(--muted);font-size:13px}
-.swatches{display:flex;flex-wrap:wrap;gap:8px}
-.swatch{width:64px;height:64px;border-radius:var(--r-ctl);border:2px solid transparent;cursor:pointer;display:grid!important;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;overflow:hidden;padding:0!important}
-.swatch.on{border-color:var(--accent)}
-.swatch span{display:block}
-.swatch small{grid-column:1/3;font-size:10px;text-align:center;background:#000a;color:#ddd;align-self:end;padding:1px 0}
+.swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:8px}
+dialog button.swatch{display:flex;flex-direction:column;align-items:stretch;gap:5px;padding:5px 5px 4px;background:var(--panel2);border:2px solid transparent;border-radius:var(--r-box)}
+dialog button.swatch.on{border-color:var(--accent)}
+.swatch .mini{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;aspect-ratio:1;border-radius:4px;overflow:hidden;box-shadow:0 2px 6px #0006}
+.swatch .mini i{display:block}
+.swatch small{font-size:11px;color:var(--muted);text-align:center;font-weight:500}
+.swatch.on small{color:var(--text)}
+
+/* personalities: one collapsible row each */
+.plist{display:flex;flex-direction:column;gap:6px}
+.pcard{background:var(--panel2);border-radius:var(--r-box)}
+.pcard summary{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;list-style:none;border-radius:var(--r-box);transition:background .15s}
+.pcard summary::-webkit-details-marker{display:none}
+.pcard summary:hover{background:#ffffff06}
+.pcard .chev{color:var(--faint);transition:transform .2s var(--ease)}
+.pcard .chev svg{width:14px;height:14px}
+.pcard[open] .chev{transform:rotate(180deg)}
+.pcard .pname{font-weight:600;white-space:nowrap}
+.pcard .psum{color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1}
+.pcard[open] .psum{visibility:hidden}
+.pbody{display:flex;flex-direction:column;gap:8px;padding:2px 12px 12px}
+.pbody .s{color:var(--muted);font-size:12.5px}
 .pieceSets{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px}
 .pieceSet{border:2px solid transparent!important;border-radius:var(--r-box)!important;padding:7px!important;cursor:pointer;background:var(--panel2)!important;display:flex!important;flex-direction:column;align-items:center;gap:5px}
 .pieceSet.on{border-color:var(--accent)!important}

@@ -24,6 +24,7 @@ export function el(tag, attrs, ...kids) {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
     if (k === 'class') e.className = v;
+    else if (k === 'html') e.innerHTML = v;   /* trusted markup only (icons) */
     else if (k.startsWith('on')) e[k] = v;
     else if (v !== false && v != null) e.setAttribute(k, v === true ? '' : v);
   }

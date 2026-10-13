@@ -30,7 +30,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from uci import Engines
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 FROZEN = getattr(sys, "frozen", False)
 APP_DIR = Path(sys.executable if FROZEN else __file__).resolve().parent
 BUNDLE = Path(getattr(sys, "_MEIPASS", APP_DIR))
@@ -498,6 +498,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, engines.listing())
         elif path == "/api/engines/browse":
             self.send(200, {"path": browse_file() if self.client_address[0] in ("127.0.0.1", "::1") else None})
+        elif path == "/api/history":
+            self.send(200, {"games": history(data)})
         elif path == "/api/move" and CFG["agent"]:
             self.relay_move(data)
         else:
@@ -541,6 +543,31 @@ class Handler(BaseHTTPRequestHandler):
         self.send(200, {"ok": True, "state": out})
 
 
+history_lock = threading.Lock()
+
+
+def history(data):
+    """Finished games (data/history.json, newest last). {"add": game} | {"remove": id} | {"clear": true} | {} to list."""
+    with history_lock:
+        games = load_json(data_path("history.json"), [])
+        if not isinstance(games, list):
+            games = []
+        changed = False
+        if isinstance(data.get("add"), dict) and data["add"].get("id"):
+            g = data["add"]
+            games = [x for x in games if x.get("id") != g["id"]] + [g]
+            games = games[-1000:]
+            changed = True
+        elif data.get("remove"):
+            games = [x for x in games if x.get("id") != data["remove"]]
+            changed = True
+        elif data.get("clear") is True:
+            games, changed = [], True
+        if changed:
+            save_json(data_path("history.json"), games)
+        return games
+
+
 def browse_file():
     """Native 'open file' dialog on this PC, for picking an engine executable."""
     try:
@@ -582,9 +609,12 @@ def open_page(url, app):
 
 
 def idle_watch(seconds):
+    started = time.time()
     while True:
         time.sleep(5)
-        if last_seen and polls == 0 and time.time() - last_seen > seconds:
+        # a page that never connected (window closed early, browser missing) counts from the start, with 2 minutes' grace
+        seen = last_seen or started + 120
+        if polls == 0 and time.time() - seen > seconds:
             engines.shutdown()
             os._exit(0)
 

@@ -1,5 +1,6 @@
 /* game state shared by the modules. GPL-3.0-or-later */
 import * as C from './core.js';
+import {BOTS} from './historic.js';
 
 export const SIDE = ['White', 'Black'];
 export const VARIANT_NAME = ['Standard', 'King of the Hill', 'Three-check'];
@@ -10,6 +11,7 @@ export const S = {
   flipped: false, pos: null, moves: [], sans: [], lastMove: 0, over: null, gameId: 0,
   viewPly: null, sel: -1, selFree: false, targets: new Map(), tgtHide: new Set(), thinking: false, info: '', say: '', sayBy: -1,
   eng: null, llmCtl: null, llmT0: 0, lastOn: new Map(), arrows: [], circles: [], paused: false, peek: false, inactive: false,
+  premove: null, preSel: -1,
   config: {agent: null},
 };
 
@@ -24,7 +26,8 @@ export const sqOf = s => (typeof s === 'string' && /^[a-h][1-8]$/.test(s)) ? C.n
 
 export function shortModel(P) { return (P.model || 'model').replace(/\.gguf$/i, '').replace(/^.*\//, '').slice(0, 28); }
 export function engineName(P) {
-  if (!P.engine || P.engine === 'builtin') return 'Engine · ' + C.LEVELS[P.level].name;
+  if (!P.engine || P.engine === 'builtin') return 'Engine · ' + C.LEVELS[P.level ?? 3].name;
+  if (BOTS[P.engine]) return BOTS[P.engine].name;
   const e = S.engineList?.find(x => x.id === P.engine);
   if (e?.kind === 'maia') return 'Maia ' + (P.maia || 1500);
   const n = (e?.name || P.engine).replace(/\s+(dev|v?\d[\w.\-]*)$/i, '');

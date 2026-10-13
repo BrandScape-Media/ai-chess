@@ -60,9 +60,15 @@ The built-in engine always works (5 levels, every variant). Real engines install
 | **Fairy-Stockfish** | Stockfish for variants (King of the Hill, Three-check) |
 | **Leela Chess Zero** | neural-network engine in the AlphaZero style |
 | **Maia 1100–1900** | Leela nets trained on human games: plays like a real person of that rating |
-| **Berserk**, **Koivisto** | strong engines with their own style |
+| **Berserk**, **Koivisto**, **Obsidian**, **Caissa**, **Clover**, **Halogen** | more top engines, each with its own style |
+| **Arasan** | a veteran: first released in 1994 and still developed; can play at a set Elo |
+| **Weiss**, **FabChess**, **Seer**, **Velvet**, **Altair** | lesser-known hobby engines, some without a neural network |
 
-Any other UCI engine (Komodo, Ethereal, …) can be added with **Add engine → Browse…**. AlphaZero itself was never released; Leela is its open-source counterpart.
+Two historical opponents are built in, no download needed: **Turochamp**, the paper program Alan Turing and David Champernowne wrote in 1948 (recreated from their rules), and a **Random mover**.
+
+Any other UCI engine (Komodo, Ethereal, …) can be added with **Add engine → Browse…**. AlphaZero and Deep Blue were never released; Leela is AlphaZero's open-source counterpart, and Stockfish at about 2850 Elo plays at Deep Blue's level.
+
+You can change an engine's strength in the middle of a game, right above the move list.
 
 ![Engines](docs/engines.png)
 
@@ -72,13 +78,15 @@ LLMs are famous for illegal chess moves: knights that move like bishops, pieces 
 
 ## Chat with your opponent
 
-Like the chat on chess.com: talk to the model while you play. Every computer opponent gets a hidden **personality** (trash talker, nervous beginner, pirate captain, zen master, noir detective, …). Models stay in character and sometimes comment on the game; engines banter with canned lines and an ELIZA-style chat bot that knows the position. Personalities can be added, edited, removed or pinned to a model in **Settings → Chat & personalities**.
+Like the chat on chess.com: talk to the model while you play. Every computer opponent gets a hidden **personality** (trash talker, nervous beginner, pirate captain, zen master, noir detective, …). They chat like real players: a hello at the start, a reaction at the big moments, "gg" at the end, and they may ignore you if that fits their character. Engines banter with canned lines and an ELIZA-style chat bot that knows the position. Personalities can be added, edited, removed or pinned to a model in **Settings → Chat & personalities**.
 
 ## Also
 
 * **Variants:** Chess960 (Fischer Random), King of the Hill, Three-check, Transcendental chess, any position from a FEN. The rules are explained to the models in their prompt.
 * **Arrows and circles** like on chess.com (right-click drag; Shift/Alt/Ctrl for colors), plus a sneaky option: **let the opponent peek at your arrows**. Plan honestly, or bait it.
-* **Clocks** from 1-minute bullet to 30-minute games, with increment; computer players can be timed too (watch an LLM flag).
+* **Clocks:** bullet (1, 1|1, 2|1), blitz (3, 3|2, 5), rapid (10, 10|5, 15|10) or 30 minutes; computer players can be timed too (watch an LLM flag).
+* **Premoves:** queue your next move while the opponent thinks. In chaos mode they are played even when they've become illegal.
+* **Game history** with the winner of every game, replay and PGN.
 * **Ratings:** engines show realistic Elo estimates, every AI model gets a random rating for the game, and your own rating goes up and down as you win and lose.
 * **Hints** (best move from Stockfish or the built-in engine) and **takebacks**, each can be switched off.
 * Move list with review, flip board, PGN/FEN export, the game is saved automatically.

@@ -4,6 +4,7 @@ import * as C from './core.js';
 import {S, SIDE, VARIANT_UCI, hooks, humanCount, rulesOff, sqOf, shortModel, ascii, histText} from './state.js';
 import {api, toast, sleep} from './util.js';
 import {canvasPiece} from './theme.js';
+import {BOTS} from './historic.js';
 
 /* ================= engines ================= */
 let worker = null, reqId = 0;
@@ -31,17 +32,19 @@ function fmtScore(cp, mate) {
 }
 const fmtNodes = n => n > 1e6 ? (n / 1e6).toFixed(1) + 'M' : Math.round((n || 0) / 1e3) + 'k';
 
+export const isBrowserEngine = id => !id || id === 'builtin' || !!BOTS[id];
 export function askEngine(P) {
-  if (P.engine && P.engine !== 'builtin') return askExternal(P);
+  if (!isBrowserEngine(P.engine)) return askExternal(P);
   S.thinking = true; S.info = ''; hooks.render();
   const id = ++reqId, gid = S.gameId, len = S.moves.length, t0 = performance.now(), side = S.pos.turn;
   S.eng = {id, gid, len, t0, P, side};
-  const msg = {id, fen: S.startFen, variant: S.variant, c960: S.c960, moves: S.moves.slice(), level: P.level};
+  const bot = BOTS[P.engine] ? P.engine : null;
+  const msg = {id, fen: S.startFen, variant: S.variant, c960: S.c960, moves: S.moves.slice(), level: P.level ?? 3, bot};
   const w = ensureWorker();
   if (w) w.postMessage(msg);
   else setTimeout(() => {
     const p = new C.Pos(S.startFen, S.variant, S.c960); for (const m of msg.moves) p.make(m);
-    onWorker({data: {id, done: true, res: C.search(p, C.LEVELS[P.level])}});
+    onWorker({data: {id, done: true, res: bot ? BOTS[bot].fn(p) : C.search(p, C.LEVELS[msg.level])}});
   }, 60);
 }
 function onWorker(e) {
@@ -249,7 +252,18 @@ function arrowsText(side) {
 }
 function persona(P) {
   if (!S.chatOn || !P.persona) return '';
-  return `Your personality: ${P.persona.prompt}\n\nThere is a chat next to the board. After your move you may add ONE short line of table talk on a new line that starts with "Say:", in character. Do it only sometimes (roughly one move in three: after captures, checks, surprises, or when your opponent wrote something). Never reveal which move you plan next.`;
+  return `Your character: ${P.persona.prompt}\n\nThere is a chat box next to the board, like on chess.com. Real players almost never type during a game. ` +
+    `Only when a turn message says "You may chat this turn", you may add ONE line after your move that starts with "Say:": a few words, in character, the way people type in online chess. ` +
+    `Skipping it is normal. Never describe the position, never comment on every move, never reveal which move you plan next.`;
+}
+/* table talk while moving is rare: only right after a big moment
+   (chat.js marks S.bigMoment: a piece won or lost, a promotion, a blunder), at most 3 times a game and never twice in 10 plies */
+export function mayChat(P) {
+  if (!S.chatOn || !P.persona) return {ok: false};
+  const t = P.talk || (P.talk = {last: -99, count: 0});   /* messages from the opponent are answered separately (chat.js) */
+  if (t.count >= 3 || S.moves.length - t.last < 10) return {ok: false};
+  const b = S.bigMoment;
+  return {ok: !!b && b.ply === S.moves.length && Math.random() < .6};
 }
 export function llmSystem(P, side) {
   let t = `You are a chess player. You play ${SIDE[side]} against ${oppDesc(side)}.`;
@@ -268,7 +282,7 @@ function chatSince(side, sincePly) {
   const lines = (S.chatLog || []).filter(c => c.ply >= sincePly && c.from !== side && c.from !== 'sys').slice(-4);
   return lines.length ? 'Chat since your last move:\n' + lines.map(c => `${c.from === 'you' ? 'Opponent' : SIDE[c.from]}: ${c.text}`).join('\n') : '';
 }
-export function turnText(P, side, legal, first, withImg) {
+export function turnText(P, side, legal, first, withImg, chatOk = {}) {
   const p = S.pos, L = [], vs = variantStatus(p);
   if (P.sees === 'board') {
     L.push(`You are playing ${SIDE[side]}. It is your move.`);
@@ -286,6 +300,7 @@ export function turnText(P, side, legal, first, withImg) {
   const at = arrowsText(side); if (at) L.push(at);
   if (withImg) L.push(PIC_LINE);
   if (P.hint) L.push('Legal moves (UCI): ' + legal.map(m => p.toUci(m)).join(' '));
+  if (chatOk.ok) L.push('You may chat this turn: something big just happened. Only if your character would react.');
   L.push((S.moves.length || !first || P.sees === 'board' ? 'Your move.' : 'Make the first move.') + ' Give the move in UCI notation.');
   return L.filter(Boolean).join('\n\n');
 }
@@ -306,9 +321,9 @@ export async function askLLM(P) {
   S.thinking = true; S.info = 'waiting for ' + shortModel(P) + '…'; S.llmT0 = performance.now(); hooks.render();
   const gid = S.gameId, len = S.moves.length, ctl = new AbortController(); S.llmCtl = ctl;
   const legal = S.pos.legalMoves(), chat = P.sees !== 'board', first = chat && !P.convo.length;
-  const wantImg = P.img !== 'off' && !P.noImage;
+  const wantImg = P.img !== 'off' && !P.noImage, chatOk = mayChat(P);
   if (chat) trimConvo(P);
-  const userMsg = {role: 'user', content: turnText(P, side, legal, first, wantImg), img: wantImg ? boardPng(S.pos, S.lastMove, S.peek) : null, ply: len};
+  const userMsg = {role: 'user', content: turnText(P, side, legal, first, wantImg, chatOk), img: wantImg ? boardPng(S.pos, S.lastMove, S.peek) : null, ply: len};
   const local = [];
   const build = () => {
     const out = [{role: 'system', content: llmSystem(P, side)}];
@@ -365,7 +380,10 @@ export async function askLLM(P) {
   if (local.length && local[local.length - 1].role === 'user') local.pop();
   if (chat) { P.convo.push(userMsg, ...local); P.lastPly = len; }
   S.info = secs; S.sayBy = side; S.say = '';
-  if (say && hooks.say) hooks.say(side, say);
+  if (say && chatOk.ok && !NO_REPLY.test(say) && hooks.say) {
+    hooks.say(side, say);
+    P.talk.count++; P.talk.last = len;
+  }
   if (slip) { S.say = 'Slipped: ' + S.pos.san(slip).replace(/\?!$/, ''); hooks.play(slip); return; }
   if (!chosen) {
     chosen = legal[Math.floor(Math.random() * legal.length)];
@@ -384,16 +402,32 @@ export async function llmTalk(P, side, history) {
     const d = side ? b - w : w - b;
     return d > 0 ? `you are ahead by ${d} points of material` : d < 0 ? `you are behind by ${-d} points of material` : 'material is level';
   })();
-  const sys = `You are a chess player chatting with your opponent in the chat box of an online chess game (like chess.com). You play ${SIDE[side]}.` +
-    (P.persona ? `\n\nYour personality: ${P.persona.prompt}` : '') +
+  const sys = `You are playing ${SIDE[side]} in an online chess game and this is the game's chat box, like on chess.com or lichess.` +
+    (P.persona ? `\n\nYour character (stay in it): ${P.persona.prompt}` : '') +
     `\n\nGame so far: ${histText(S.sans) || 'no moves yet'}. Right now ${material}.` +
-    `\n\nReply with one or two short sentences, casual, in character. No move lists, never say which move you will play next, no analysis lectures.`;
+    `\n\nHow people really chat during online games:` +
+    `\n- Very short: usually 1 to 8 words, one sentence at most. Lowercase and chat slang are fine.` +
+    `\n- Mostly silence. "hi" or "gl" at the start, "gg" at the end, a quick reaction to a big moment.` +
+    `\n- Your character decides whether to answer at all. A cocky, grumpy or aloof player ignores small talk or brushes it off; a friendly one answers briefly.` +
+    `\n- Do not get pulled into long off-topic conversations (life, philosophy, coding, ...): brush it off in character or don't answer.` +
+    `\n- Never narrate moves, never describe the position, never reveal your plans.` +
+    `\n\nIf you would not answer, reply with exactly: (no reply)`;
   const msgs = [{role: 'system', content: sys}];
-  for (const c of history.slice(-12)) msgs.push({role: c.from === side ? 'assistant' : 'user', content: c.text});
+  for (const c of history.slice(-10)) {
+    const role = c.from === side ? 'assistant' : 'user', text = c.from === 'sys' ? `(${c.text})` : c.text;
+    if (msgs.length > 1 && msgs[msgs.length - 1].role === role) msgs[msgs.length - 1].content += '\n' + text;
+    else msgs.push({role, content: text});
+  }
   if (msgs[msgs.length - 1].role !== 'user') return '';
-  const txt = await llmRequest(P, msgs, undefined, {maxTokens: 300, think: 'none', temperature: 0.9});
-  return splitSay(stripThink(txt)).rest.replace(/^\s*(say|chat)\s*:\s*/i, '').trim().split('\n').filter(Boolean).slice(0, 3).join(' ').slice(0, 300);
+  if (msgs[1].role === 'assistant') msgs.splice(1, 0, {role: 'user', content: '(the chat opens)'});   /* some APIs want a user turn first */
+  const txt = await llmRequest(P, msgs, undefined, {maxTokens: 200, think: 'none', temperature: 0.9});
+  const out = splitSay(stripThink(txt)).rest.replace(/^\s*(say|chat)\s*:\s*/i, '').trim().split('\n').filter(Boolean)[0] || '';
+  if (NO_REPLY.test(out)) return '';
+  /* keep it to the first sentence or two, like a real chat line */
+  const short = (out.match(/^(.{1,140}?[.!?…])(\s|$)/) || [out])[0].trim();
+  return (short.length >= 2 ? short : out).replace(/^["“']|["”']$/g, '').slice(0, 160);
 }
+export const NO_REPLY = /^\W*\(?\s*(no reply|no response|silence|ignores?( it)?|\.\.\.)\s*\)?\W*$/i;
 
 /* ---------- board picture for vision models ---------- */
 export function sqXY(s, flip) { const f = s & 7, r = s >> 4; return [(flip ? 7 - f : f) + .5, (flip ? r : 7 - r) + .5]; }

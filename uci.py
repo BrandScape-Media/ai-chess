@@ -55,9 +55,44 @@ CATALOG = [
      "about": "A strong, compact engine.",
      "assets": {"win-x64": ["Koivisto_*-windows-avx2-pgo.exe", "Koivisto_*-windows-sse42-pgo.exe", "Koivisto_*-windows-sse2-pgo.exe"],
                 "linux-x64": ["Koivisto_*-linux-avx2-pgo", "Koivisto_*-linux-sse42-pgo", "Koivisto_*-linux-sse2-pgo"]}},
+    {"id": "obsidian", "name": "Obsidian", "kind": "time", "repo": "gab8192/Obsidian",
+     "about": "One of the strongest engines today. Needs a CPU with AVX2.",
+     "assets": {"win-x64": ["Obsidian*-avx2.exe", "Obsidian*-avx2-pext.exe"]}},
+    {"id": "caissa", "name": "Caissa", "kind": "time", "repo": "Witek902/Caissa",
+     "about": "A top engine named after Caïssa, the goddess of chess.",
+     "assets": {"win-x64": ["caissa-*-x64-avx2-bmi2.exe", "caissa-*-x64-avx2.exe", "caissa-*-x64-sse4-popcnt.exe", "caissa-*-x64-sse2.exe"]}},
+    {"id": "clover", "name": "Clover", "kind": "time", "repo": "lucametehau/CloverEngine",
+     "about": "A strong open-source engine.",
+     "assets": {"win-x64": ["Clover.*-avx2.exe", "Clover.*-old.exe"]}},
+    {"id": "halogen", "name": "Halogen", "kind": "time", "repo": "KierenP/Halogen",
+     "about": "A strong engine with its own neural network.",
+     "assets": {"win-x64": ["Halogen-*-windows-x86_64-avx2.exe", "Halogen-*-windows-x86_64-sse4.exe", "Halogen-*-windows-x86_64-legacy.exe"]}},
+    # veterans and lesser-known engines
+    {"id": "arasan", "name": "Arasan", "kind": "time", "repo": "jdart1/arasan-chess", "group": "veteran",
+     "about": "One of the oldest engines still in development: Jon Dart released the first version in 1994. Can play at a set Elo.",
+     "assets": {"win-x64": ["arasan*.zip"]},
+     "exes": ["arasanx-64-avx2-bmi2.exe", "arasanx-64-avx2.exe", "arasanx-64-modern.exe", "arasanx-64.exe"]},
+    {"id": "weiss", "name": "Weiss", "kind": "time", "repo": "TerjeKir/weiss", "group": "veteran",
+     "about": "A small, readable engine from 2021 that thinks the old-fashioned way, without a neural network.",
+     "assets": {"win-x64": ["Weiss-*-windows-collection.zip"]},
+     "exes": ["weiss-popcnt.exe", "weiss-nopopcnt.exe"]},
+    {"id": "fabchess", "name": "FabChess", "kind": "time", "repo": "fabianvdW/FabChess", "group": "veteran",
+     "about": "A hobby engine written in Rust, last released in 2020. Classic evaluation, no neural network.",
+     "assets": {"win-x64": ["FabChess*POPCNTWin64.exe", "FabChess*OLDWin64.exe"]}},
+    {"id": "seer", "name": "Seer", "kind": "time", "repo": "connormcmonigle/seer-nnue", "group": "veteran",
+     "about": "A lesser-known engine whose network learned backwards, starting from solved endgames.",
+     "assets": {"win-x64": ["seer_*_x64_avx2_popcnt.exe", "seer_*_x64_ssse3_nopopcnt.exe"]}},
+    {"id": "velvet", "name": "Velvet", "kind": "time", "repo": "mhonert/velvet-chess", "group": "veteran",
+     "about": "A quiet hobby engine written in Rust.",
+     "assets": {"win-x64": ["velvet-*-x86_64-avx2.exe", "velvet-*-x86_64-sse4-popcnt.exe", "velvet-*-x86_64-nopopcnt.exe"]}},
+    {"id": "altair", "name": "Altair", "kind": "time", "repo": "Alex2262/AltairChessEngine", "group": "veteran",
+     "about": "A lesser-known hobby engine named after the star.",
+     "assets": {"win-x64": ["Altair-windows-x86-64-v3.exe", "Altair-windows-x86-64-v2.exe", "Altair-windows-x86-64-v1.exe"]}},
 ]
 NOT_AVAILABLE = [
+    {"name": "Deep Blue", "about": "IBM's 1997 machine ran on custom chips and was never released. Stockfish set to about 2850 Elo plays at its level."},
     {"name": "AlphaZero", "about": "DeepMind never released it. Leela Chess Zero is the open-source reimplementation of the same idea."},
+    {"name": "Crafty, Fruit, GNU Chess", "about": "Classics without official GitHub downloads (Crafty also speaks only the older WinBoard protocol). If you have a UCI build, add it with 'Add engine'."},
     {"name": "Komodo Dragon", "about": "Commercial. If you own it, add its .exe with 'Add engine'."},
 ]
 
@@ -131,7 +166,7 @@ class EngineProcess:
                 opt = {"type": parts[0] if parts else "string"}
                 for key in ("default", "min", "max"):
                     if f" {key} " in f" {spec} ":
-                        tail = spec.split(f"{key} ", 1)[1]
+                        tail = (spec + " ").split(f"{key} ", 1)[1]   # "default" may have an empty value at the end of the line
                         opt[key] = tail.split(" var ")[0].split(" min ")[0].split(" max ")[0].strip()
                 if " var " in f" {spec}":
                     opt["vars"] = [v.strip() for v in spec.split(" var ")[1:]]
@@ -228,7 +263,7 @@ class Engines:
         for c in CATALOG:
             avail = "*" in c["assets"] or pk in c["assets"]
             cat.append({k: c[k] for k in ("id", "name", "about", "kind")} | {"available": avail, "installed": bool(self.get(c["id"])),
-                                                                            "requires": c.get("requires")})
+                                                                            "requires": c.get("requires"), "group": c.get("group", "top")})
         return {"installed": [{k: e.get(k) for k in ("id", "name", "kind", "variants", "chess960", "elo", "catalog", "weights", "path", "author")}
                               for e in self.reg],
                 "catalog": cat, "unavailable": NOT_AVAILABLE, "platform": pk, "jobs": self.jobs}
@@ -358,16 +393,23 @@ class Engines:
                     self._download(cid, a["browser_download_url"], dl)
                     self._job(cid, step="unpacking")
                     exe = self._unpack(dl, target, cid)
-                    try:
-                        self._job(cid, step="testing the engine")
-                        d = self.probe(exe)
-                    except Exception as e:   # wrong CPU build: try the next one
-                        errors.append(f"{a['name']}: {e}")
+                    # archives with one build per CPU type: the fastest build that runs here wins
+                    tries = [p for pat in c["exes"] for p in sorted(target.rglob(pat))] if c.get("exes") else [exe]
+                    d = None
+                    for exe in tries:
+                        try:
+                            self._job(cid, step="testing the engine")
+                            d = self.probe(str(exe))
+                            break
+                        except Exception as e:   # wrong CPU build: try the next one
+                            errors.append(f"{exe.name}: {e}")
+                    if d is None:
                         continue
                     for ex in c.get("extra", []):
                         self._job(cid, step=f"downloading {ex['file']}")
                         self._download(cid, ex["url"], target / ex["file"])
-                    entry = {"id": cid, "name": d["name"], "path": self.relpath(exe), "args": [], "catalog": cid, "kind": c["kind"],
+                    kind = c["kind"] if c["kind"] not in ("elo", "time") else ("elo" if d["elo"] else "time")
+                    entry = {"id": cid, "name": d["name"], "path": self.relpath(exe), "args": [], "catalog": cid, "kind": kind,
                              "version": rel.get("tag_name")} | d
                     if c.get("extra"):
                         entry["weights"] = {"default": str(Path(cid) / c["extra"][0]["file"])}

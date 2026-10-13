@@ -16,6 +16,7 @@
     <a class="brand" href="#" data-tab="play"><img src="pieces/cburnett/wN.svg" alt=""><span>AI Chess</span></a>
     <button class="railbtn" data-tab="play" data-ic="play"><span class="lbl">Play</span></button>
     <button class="railbtn" data-tab="new" data-ic="plus"><span class="lbl">New game</span></button>
+    <button class="railbtn" data-tab="history" data-ic="clock-counter-clockwise"><span class="lbl">History</span></button>
     <button class="railbtn" id="bSettings" data-ic="gear-six"><span class="lbl">Settings</span></button>
     <span class="grow"></span>
     <a class="railbtn small" href="https://github.com/BrandScape-Media/ai-chess" target="_blank" rel="noopener" data-ic="github-logo"><span class="lbl">GitHub</span></a>
@@ -53,6 +54,7 @@
 
     <section class="tab" id="tab-play">
       <div class="statusbar"><div id="status"></div><div id="einfo"></div></div>
+      <div id="live" hidden></div>
       <div id="bubble" hidden></div>
       <div id="moves"></div>
       <div class="navrow">
@@ -80,10 +82,14 @@
         <div class="seat" id="seat1"></div>
 
         <div class="group">
+          <div class="gh">Time control</div>
+          <div class="tcpick" id="tcPick" role="radiogroup" aria-label="Time control"></div>
+          <input type="hidden" id="tc" value="0">
+          <label class="chk" id="tcAIrow"><input type="checkbox" id="tcAI"> computer and AI players are timed too</label>
+        </div>
+
+        <div class="group">
           <div class="set">
-            <label for="tc">Clock</label>
-            <select id="tc"><option value="0">No clock</option><option value="60+0">1 min (bullet)</option><option value="180+2">3 | 2 (blitz)</option><option value="300+0">5 min (blitz)</option><option value="600+0">10 min (rapid)</option><option value="900+10">15 | 10 (rapid)</option><option value="1800+0">30 min</option></select>
-            <span></span><label class="chk" id="tcAIrow"><input type="checkbox" id="tcAI"> computer and AI players are timed too</label>
             <label for="variant">Variant</label>
             <select id="variant"><option value="0">Standard chess</option><option value="1">King of the Hill</option><option value="2">Three-check</option></select>
             <label for="start">Start</label>
@@ -102,6 +108,11 @@
         <div class="hint" id="hint"></div>
       </div>
       <div class="startbar"><button class="primary" id="bNew" data-ic="play">Start game</button></div>
+    </section>
+
+    <section class="tab history" id="tab-history" hidden>
+      <div class="histhead"><h2>Game history</h2><div id="histStats"></div></div>
+      <div id="histList"></div>
     </section>
 
     <section class="tab chat" id="tab-chat" hidden>

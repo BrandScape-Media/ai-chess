@@ -1,8 +1,9 @@
 /* app settings (kept by the server in data/settings.json) and the Settings dialog. GPL-3.0-or-later */
 import {$, api, toast, esc, el} from './util.js';
+import {ICONS} from './icons.js';
 import {S, hooks} from './state.js';
 import {BOARD_THEMES, PIECE_SETS, applyAppearance, isImageSet} from './theme.js';
-import {DEFAULT_PERSONALITIES, BOT_STYLES} from './personas.js';
+import {DEFAULT_PERSONALITIES, BOT_STYLES, OLD_PROMPTS} from './personas.js';
 
 export const SET = {
   appearance: {board: 'brown', custom: ['#f0d9b5', '#b58863'], pieces: 'cburnett', coords: true, dots: true, animate: true, sound: true, customPieces: {}},
@@ -20,7 +21,10 @@ export async function loadSettings() {
     const s = await api('/api/settings');
     if (s.appearance) Object.assign(SET.appearance, s.appearance);
     if (s.chat) Object.assign(SET.chat, s.chat);
-    if (Array.isArray(s.personalities) && s.personalities.length) SET.personalities = s.personalities;
+    if (Array.isArray(s.personalities) && s.personalities.length) {
+      SET.personalities = s.personalities;
+      for (const p of SET.personalities) if (OLD_PROMPTS[p.id] && p.prompt === OLD_PROMPTS[p.id]) p.prompt = DEFAULT_PERSONALITIES.find(d => d.id === p.id).prompt;
+    }
     if (s.defaultPersonality) SET.defaultPersonality = s.defaultPersonality;
     if (s.modelPersonality) SET.modelPersonality = s.modelPersonality;
     SET.providers = s.providers || [];
@@ -76,8 +80,9 @@ function lookTab(sec) {
   const sw = el('div', {class: 'swatches'});
   for (const [id, t] of Object.entries(BOARD_THEMES)) {
     const L = id === 'custom' ? a.custom[0] : t.light, D = id === 'custom' ? a.custom[1] : t.dark;
-    const b = el('button', {class: 'swatch' + (a.board === id ? ' on' : ''), title: t.name, onclick: () => { a.board = id; apply(); openSettings(); }},
-      el('span', {style: `background:${t.lightbg || L}`}), el('span', {style: `background:${t.darkbg || D}`}), el('small', {}, t.name));
+    const lb = `background:${t.lightbg || L}`, db = `background:${t.darkbg || D}`;
+    const b = el('button', {class: 'swatch' + (a.board === id ? ' on' : ''), title: t.name, 'aria-pressed': a.board === id, onclick: () => { a.board = id; apply(); openSettings(); }},
+      el('span', {class: 'mini'}, el('i', {style: lb}), el('i', {style: db}), el('i', {style: db}), el('i', {style: lb})), el('small', {}, t.name));
     sw.append(b);
   }
   sec.append(sw);
@@ -123,6 +128,7 @@ function lookTab(sec) {
       el('label', {}, 'Coordinates'), check('show a-h and 1-8 on the board', () => a.coords !== false, v => { a.coords = v; applyAppearance(a); }),
       el('label', {}, 'Move hints'), check('dots on the squares a piece can go to', () => a.dots !== false, v => { a.dots = v; applyAppearance(a); }),
       el('label', {}, 'Animation'), check('slide pieces when they move', () => a.animate !== false, v => { a.animate = v; applyAppearance(a); }),
+      el('label', {}, 'Premoves'), check('queue your next move while the computer thinks (right-click cancels)', () => a.premoves !== false, v => { a.premoves = v; }),
       el('label', {}, 'Sound'), check('move and capture sounds', () => a.sound !== false, v => { a.sound = v; })));
 }
 
@@ -188,9 +194,11 @@ async function enginesTab(sec) {
       el('span', {class: 's'}, 'Plays: ' + plays + (e.elo ? ` · strength ${e.elo[0]}-${e.elo[1]} Elo or full` : '')),
       e.kind === 'maia' ? el('span', {class: 's'}, 'Ratings: ' + Object.keys(e.weights || {}).join(', ')) : null));
     }
-    box.append(el('h4', {}, 'Get engines'));
     let running = false;
-    for (const c of r.catalog) {
+    const groups = [['top', 'Get engines: the strongest'], ['veteran', 'Veterans and lesser-known engines']];
+    for (const [g, head] of groups) {
+    box.append(el('h4', {}, head));
+    for (const c of r.catalog.filter(x => (x.group || 'top') === g)) {
       const job = r.jobs[c.id];
       const card = el('div', {class: 'card'}, el('div', {class: 'row'}, el('span', {class: 't'}, c.name), el('span', {class: 'grow'}),
         c.installed && !(job && job.state === 'running') ? el('span', {class: 'ok'}, 'installed') : null,
@@ -204,6 +212,11 @@ async function enginesTab(sec) {
       } else if (job && job.state === 'error') card.append(el('span', {class: 'err'}, job.step));
       box.append(card);
     }
+    }
+    box.append(el('h4', {}, 'Built into the game (no download)'),
+      el('div', {class: 'card'}, el('span', {class: 't'}, 'Turochamp (1948)'), el('span', {class: 's'}, 'The first chess program ever written, by Alan Turing and David Champernowne, before any computer could run it. Turing played it by hand in 1952. Recreated from their rules: it looks at its move and your reply, then follows the captures until things calm down.')),
+      el('div', {class: 'card'}, el('span', {class: 't'}, 'Random mover'), el('span', {class: 's'}, 'Plays any legal move. Good for testing chaos mode, or your patience.')));
+    box.append(el('h4', {}, 'Not available'));
     for (const u of r.unavailable) box.append(el('div', {class: 'card'}, el('span', {class: 't'}, u.name), el('span', {class: 's'}, u.about)));
     const path = el('input', {type: 'text', placeholder: 'C:\\Engines\\myengine.exe', spellcheck: 'false', style: 'flex:1'});
     const name = el('input', {type: 'text', placeholder: 'Name (optional)'});
@@ -224,6 +237,7 @@ async function enginesTab(sec) {
 }
 
 /* ---------- chat & personalities ---------- */
+let openPersona = null;   /* a freshly added personality opens expanded */
 function chatTab(sec) {
   const c = SET.chat;
   sec.append(el('h3', {}, 'Chat & personalities'),
@@ -245,19 +259,32 @@ function chatTab(sec) {
     g.append(el('label', {title: k}, label), s);
   }
   if (known.size) sec.append(el('p', {class: 'hint'}, 'Per player (the models and engines you have played):'), g);
-  sec.append(el('h4', {}, 'Personalities'));
+  sec.append(el('h4', {}, `Personalities (${SET.personalities.filter(p => p.on !== false).length} of ${SET.personalities.length} in the random pool)`));
+  const list = el('div', {class: 'plist'});
   for (const p of SET.personalities) {
     const name = el('input', {type: 'text', value: p.name, style: 'flex:1'}), prompt = el('textarea', {}, p.prompt);
     const bot = el('select', {}, ...BOT_STYLES.map(b => el('option', {value: b, selected: p.bot === b}, b)));
-    const on = el('input', {type: 'checkbox'}); on.checked = p.on !== false;
-    name.onchange = () => { p.name = name.value; saveSettings(); }; prompt.onchange = () => { p.prompt = prompt.value; saveSettings(); };
-    bot.onchange = () => { p.bot = bot.value; saveSettings(); }; on.onchange = () => { p.on = on.checked; saveSettings(); };
-    sec.append(el('div', {class: 'card'}, el('div', {class: 'row'}, name, el('label', {class: 'chk', title: 'Used when picking at random'}, on, ' in the random pool'),
-      el('button', {class: 'danger', onclick: () => { SET.personalities = SET.personalities.filter(x => x !== p); saveSettings(); openSettings(); }}, 'Delete')),
-    el('span', {class: 's'}, 'How an AI model plays this character:'), prompt, el('div', {class: 'row'}, el('span', {class: 's'}, 'Engine chat style'), bot)));
+    const on = el('input', {type: 'checkbox', title: 'In the random pool'}); on.checked = p.on !== false;
+    const title = el('span', {class: 'pname'}, p.name), sum = el('span', {class: 'psum'}, p.prompt);
+    name.onchange = () => { p.name = name.value; title.textContent = p.name; saveSettings(); };
+    prompt.onchange = () => { p.prompt = prompt.value; sum.textContent = p.prompt; saveSettings(); };
+    bot.onchange = () => { p.bot = bot.value; saveSettings(); };
+    on.onchange = () => { p.on = on.checked; saveSettings(); };
+    on.onclick = e => e.stopPropagation();
+    const d = el('details', {class: 'pcard'},
+      el('summary', {}, el('span', {class: 'chev', html: ICONS['caret-down']}), on, title, sum),
+      el('div', {class: 'pbody'},
+        el('div', {class: 'row'}, name, el('button', {class: 'danger', onclick: () => { SET.personalities = SET.personalities.filter(x => x !== p); saveSettings(); openSettings(); }}, 'Delete')),
+        el('span', {class: 's'}, 'How an AI model plays this character (keep it about how they chat: short, and whether they bother to answer):'), prompt,
+        el('div', {class: 'row'}, el('span', {class: 's'}, 'Engine chat style'), bot)));
+    if (p.id === openPersona) d.open = true;
+    list.append(d);
   }
+  sec.append(list);
   sec.append(el('div', {class: 'row'}, el('button', {class: 'primary', onclick: () => {
-    SET.personalities.push({id: 'p' + Date.now().toString(36), name: 'New personality', prompt: 'Describe how they talk and behave.', bot: 'friendly', on: true}); saveSettings(); openSettings();
+    const id = 'p' + Date.now().toString(36);
+    SET.personalities.push({id, name: 'New personality', prompt: 'Describe how they type in the chat: short or chatty, friendly or rude, and what they ignore.', bot: 'friendly', on: true});
+    openPersona = id; saveSettings(); openSettings();
   }}, 'Add personality'), el('button', {onclick: () => { if (confirm('Restore the built-in personalities? Your own ones are kept.')) {
     const mine = SET.personalities.filter(p => !DEFAULT_PERSONALITIES.some(d => d.id === p.id));
     SET.personalities = DEFAULT_PERSONALITIES.map(p => ({...p, on: true})).concat(mine); saveSettings(); openSettings();
@@ -274,6 +301,6 @@ function aboutTab(sec) {
     el('p', {class: 'hint'}, 'From the lichess project; see web/pieces/LICENSES.md.'),
     el('div', {}, ...PIECE_SETS.filter(s => s.lic).map(s => el('div', {class: 'hint'}, `${s.name}: ${s.by} (${s.lic})`))),
     el('h4', {}, 'Engines'),
-    el('p', {class: 'hint'}, 'Stockfish, Fairy-Stockfish, Leela Chess Zero, Maia, Berserk and Koivisto are separate programs with their own licenses, downloaded from their official releases only when you click Install.'));
+    el('p', {class: 'hint'}, 'The installable engines (Stockfish, Leela Chess Zero, Maia, Arasan and the rest) are separate programs with their own licenses, downloaded from their official releases only when you click Install.'));
 }
 export {isImageSet};

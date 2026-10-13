@@ -1,0 +1,71 @@
+# Builds one-file programs for Windows, Linux and macOS and attaches them to a GitHub Release.
+# Trigger: push a tag like v1.0.0  (git tag v1.0.0 && git push origin v1.0.0), or run it by hand from the Actions tab.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tests/core.test.js
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m py_compile server.py uci.py
+
+  build:
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            asset: ai-chess-windows.exe
+            sep: ";"
+          - os: ubuntu-latest
+            asset: ai-chess-linux
+            sep: ":"
+          - os: macos-latest
+            asset: ai-chess-macos
+            sep: ":"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyinstaller
+      - name: Build
+        shell: bash
+        run: |
+          pyinstaller --noconfirm --onefile --windowed --name ai-chess --icon assets/ai-chess.ico --add-data "web${{ matrix.sep }}web" server.py
+          if [ -f dist/ai-chess.exe ]; then mv dist/ai-chess.exe "dist/${{ matrix.asset }}"; else mv dist/ai-chess "dist/${{ matrix.asset }}"; fi
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          generate_release_notes: true

@@ -1,0 +1,12 @@
+# your games, settings (API keys!) and downloaded engines
+data/
+local.json
+# builds
+.build/
+build/
+dist/
+*.exe
+*.spec
+__pycache__/
+*.pyc
+node_modules/

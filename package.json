@@ -1,0 +1,10 @@
+{
+  "name": "ai-chess",
+  "private": true,
+  "type": "module",
+  "description": "Play chess against your local AI models and chess engines",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "test": "node tests/core.test.js"
+  }
+}

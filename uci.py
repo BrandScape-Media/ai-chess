@@ -38,10 +38,13 @@ CATALOG = [
                 "mac-arm64": ["*macos*universal*", "*macos-m1-apple-silicon*", "*macos*apple*", "*macos*arm*", "*macos*aarch64*"],
                 "mac-x64": ["*macos*universal*", "*macos-x86-64-avx2*", "*macos-x86-64*"],
                 "mac": ["*macos*.tar*", "*macos*.zip", "*mac*.tar*", "*mac*.zip"]}},
+    # the big-board build plays every variant (Capablanca, Grand, Xiangqi, Shogi...); the latest release ships only that one
     {"id": "fairy-stockfish", "name": "Fairy-Stockfish", "kind": "elo", "repo": "fairy-stockfish/Fairy-Stockfish",
-     "about": "Stockfish for chess variants: plays King of the Hill and Three-check too.",
-     "assets": {"win-x64": ["fairy-stockfish_x86-64-bmi2.exe", "fairy-stockfish_x86-64-modern.exe", "fairy-stockfish_x86-64.exe"],
-                "linux-x64": ["fairy-stockfish_x86-64-bmi2", "fairy-stockfish_x86-64-modern", "fairy-stockfish_x86-64"]}},
+     "about": "Stockfish for chess variants: plays about 90 of them, from Crazyhouse and Atomic to Capablanca, Xiangqi and Shogi.",
+     "assets": {"win-x64": ["fairy-stockfish-largeboard_x86-64-bmi2.exe", "fairy-stockfish-largeboard_x86-64-modern.exe", "fairy-stockfish-largeboard_x86-64.exe",
+                            "fairy-stockfish_x86-64-bmi2.exe", "fairy-stockfish_x86-64-modern.exe", "fairy-stockfish_x86-64.exe"],
+                "linux-x64": ["fairy-stockfish-largeboard_x86-64-bmi2", "fairy-stockfish-largeboard_x86-64-modern", "fairy-stockfish-largeboard_x86-64",
+                              "fairy-stockfish_x86-64-bmi2", "fairy-stockfish_x86-64-modern", "fairy-stockfish_x86-64"]}},
     {"id": "lc0", "name": "Leela Chess Zero", "kind": "nodes", "repo": "LeelaChessZero/lc0",
      "about": "Neural-network engine in the AlphaZero style (AlphaZero itself was never released). Comes with a small CPU-friendly net.",
      "assets": {"win-x64": ["lc0-*-windows-cpu-openblas.zip", "lc0-*-windows-cpu-dnnl.zip"]},
@@ -248,6 +251,22 @@ class Engines:
             self.reg = json.loads(self.reg_file.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             self.reg = []
+        self.refresh_variants()
+
+    def refresh_variants(self):
+        """Older versions listed only three variants for Fairy-Stockfish: ask the engine again for all of them."""
+        changed = False
+        for e in self.reg:
+            if "UCI_Variant" in e.get("options", []) and len(e.get("variants", [])) <= 3:
+                try:
+                    d = self.probe(self.abspath(e["path"]), e.get("args", []))
+                    if len(d["variants"]) > len(e.get("variants", [])):
+                        e["variants"] = d["variants"]
+                        changed = True
+                except Exception:
+                    pass
+        if changed:
+            self.save()
 
     # ---------- registry ----------
     def save(self):
@@ -283,7 +302,7 @@ class Engines:
         opts = info["options"]
         variants = ["chess"]
         if "UCI_Variant" in opts:
-            variants = sorted(set(variants + [v for v in opts["UCI_Variant"].get("vars", []) if v in ("chess", "kingofthehill", "3check")]))
+            variants = sorted(set(variants + list(opts["UCI_Variant"].get("vars", []))))   # every variant it plays
         elo = None
         if "UCI_Elo" in opts:
             try:
@@ -400,6 +419,7 @@ class Engines:
             errors = []
             for pat in pats:
                 for a in [x for x in assets if fnmatch.fnmatch(x["name"], pat)]:
+                    self.stop_proc(cid)   # a running copy would keep its files locked (reinstall)
                     shutil.rmtree(target, ignore_errors=True)
                     target.mkdir(parents=True)
                     self._job(cid, step=f"downloading {a['name']}")

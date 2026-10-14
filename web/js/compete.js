@@ -9,6 +9,10 @@ import {setPiece} from './theme.js';
 import * as T from './tourney-core.js';
 import * as L from './league-core.js';
 import {Lane} from './tourney-runner.js';
+import {start as vStart, replay as vReplay, vstate, yourVRating, variantEngine} from './variants.js';
+import {VARIANTS, GROUPS, byId as variantById, parseFen} from './variant-catalog.js';
+import {pieceEl} from './vboard.js';
+import {VBOT_LEVELS} from './vbot-core.js';
 
 let app = null, list = [], loaded = false, tick = 0;
 const view = {sec: 'tourneys', page: 'home', tid: null, fmt: null};
@@ -70,19 +74,27 @@ function candidates(historic) {
   }
   return out;
 }
-function myRating() { return SET.profile?.rating || 1200; }
+function myRating(variant) { return variant ? yourVRating(variant) : SET.profile?.rating || 1200; }
+function variantCandidates(vid) {
+  const out = [];
+  VBOT_LEVELS.forEach((lv, i) => out.push({src: 'vbot', name: 'Variant bot ' + lv.name, type: 'vbot', level: i, rating: lv.elo}));
+  const e = variantById(vid).engine ? variantEngine(vid) : null;
+  if (e && e.elo) for (let r = Math.ceil(e.elo[0] / 100) * 100; r <= Math.min(e.elo[1], 2800); r += 100) out.push({src: e.id + r % 300, name: `Fairy-Stockfish ${r}`, type: 'engine', engine: e.id, elo: r, rating: r});
+  return out;
+}
 function llmSeat() {
   for (const i of [0, 1]) { const c = app.readSeat(i); if (c.type === 'llm' && c.model) return c; }
   return null;
 }
 export function buildField(o) {
-  const center = o.you ? myRating() : 1500;
+  const vid = o.variant && o.variant !== 'chess' && variantById(o.variant) ? o.variant : null;
+  const center = o.you ? myRating(vid) : 1500;
   const [lo, hi] = o.spread === 'wide' ? [center - 700, center + 700] : o.spread === 'strong' ? [center + 50, center + 700] : [center - 300, center + 300];
   const seats = [];
-  if (o.you) seats.push({id: T.YOU, name: 'You', type: 'human', rating: myRating()});
+  if (o.you) seats.push({id: T.YOU, name: 'You', type: 'human', rating: myRating(vid)});
   const llm = o.llm ? llmSeat() : null;
   if (llm) seats.push({id: 'llm', name: llm.model.replace(/\.gguf$/i, '').replace(/^.*\//, '').slice(0, 24), type: 'llm', provider: llm.provider, model: llm.model, rating: 400 + Math.round(Math.random() * 110) * 10});
-  const n = Math.max(0, o.count - seats.length), pool = candidates(o.historic), used = new Set(), srcUse = {};
+  const n = Math.max(0, o.count - seats.length), pool = vid ? variantCandidates(vid) : candidates(o.historic), used = new Set(), srcUse = {};
   for (let k = 0; k < n; k++) {
     const target = n === 1 ? center : lo + (hi - lo) * k / (n - 1);
     let best = null, bs = Infinity;
@@ -111,7 +123,8 @@ function step() {
   if (!t) return;
   const now = Date.now();
   /* your game left the board unfinished (you started another game): it waits for you again */
-  for (const g of t.games) if (g.status === 'playing' && (g.w === T.YOU || g.b === T.YOU) && !(S.tourney && S.tourney.gid === g.id && !S.over)) { g.status = 'pending'; notified = ''; save(t); }
+  const onBoard = gid => (S.tourney && S.tourney.gid === gid && !S.over) || (vstate.active && vstate.tourney && vstate.tourney.gid === gid && !vstate.over);
+  for (const g of t.games) if (g.status === 'playing' && (g.w === T.YOU || g.b === T.YOU) && !onBoard(g.id)) { g.status = 'pending'; notified = ''; save(t); }
   if (t.format === 'arena') {
     if (T.arenaPair(t, now, youReady && !S.tourney?.gid).length) save(t);
     const before = t.status;
@@ -142,7 +155,7 @@ function busyLlm(t, g) {
 async function runGame(t, g, lane) {
   g.status = 'playing';
   const w = T.playerById(t, g.w), b = T.playerById(t, g.b);
-  const r = await lane.play(g, w, b, {speed: t.speed, engines: S.engineList || []}, st => { live.set(g.id, st); if (visible()) paintBoards(t); });
+  const r = await lane.play(g, w, b, {speed: t.speed, engines: S.engineList || [], variant: t.variant}, st => { live.set(g.id, st); if (visible()) paintBoards(t); });
   live.delete(g.id);
   if (!r) { if (byId(t.id) && g.status === 'playing') g.status = 'pending'; return; }   /* stopped */
   if (!byId(t.id)) return;
@@ -159,7 +172,10 @@ function playYours(t, g) {
     : p.type === 'llm' ? {type: 'llm', provider: p.provider, model: p.model, think: 'none', sees: 'board', img: 'off', rating: p.rating}
       : {type: 'engine', engine: p.engine, level: p.level, elo: p.elo, maia: p.maia, nodes: p.nodes, rating: p.rating};
   g.status = 'playing'; save(t, true); badge(false);
-  app.startGame({tourney: {tid: t.id, gid: g.id, white: seat(T.playerById(t, g.w)), black: seat(T.playerById(t, g.b)), tc: t.tc}});
+  if (t.variant) {   /* a variant tournament: your game is on the variant board */
+    const vseat = p => p.type === 'vbot' ? {type: 'vbot', level: p.level} : seat(p);
+    vStart({vid: t.variant, seats: [vseat(T.playerById(t, g.w)), vseat(T.playerById(t, g.b))], tc: t.tc, tourney: {tid: t.id, gid: g.id}});
+  } else app.startGame({tourney: {tid: t.id, gid: g.id, white: seat(T.playerById(t, g.w)), black: seat(T.playerById(t, g.b)), tc: t.tc}});
   app.showTab('play');
 }
 /* called by the board when your tournament game ends */
@@ -285,6 +301,11 @@ function renderNew(box) {
     form.append(row('Length', seg([[5, '5 min'], [10, '10 min'], [20, '20 min']], o.minutes, v => { o.minutes = v; saveSettings(); render(); }, 'Length')));
     form.append(row('Winner', seg([['points', 'Most points'], ['streak', 'Longest streak']], o.scoring, v => { o.scoring = v; saveSettings(); render(); }, 'Winner')));
   }
+  const vsel = el('select', {class: 'cmpsel', 'aria-label': 'Variant'}, el('option', {value: 'chess'}, 'Standard chess'),
+    ...GROUPS.map(g => el('optgroup', {label: g.name}, ...VARIANTS.filter(v => v.group === g.id).map(v => el('option', {value: v.id}, v.name)))));
+  vsel.value = o.variant || 'chess';
+  vsel.onchange = () => { o.variant = vsel.value; re(); };
+  form.append(row('Variant', vsel));
   form.append(row('Your games', seg(TCS.map(([v, txt]) => [v, txt]), o.tc, v => { o.tc = v; saveSettings(); render(); }, 'Your games')));
   form.append(row('Other games', seg([['quick', 'Quick'], ['normal', 'Normal']], o.speed, v => { o.speed = v; saveSettings(); render(); }, 'Other games')));
   const llm = llmSeat();
@@ -315,7 +336,8 @@ function create(f) {
   const o = SET.tourney;
   const names = {rr: 'Round-robin', swiss: 'Swiss open', ko: 'Knockout cup', arena: 'Arena', climb: 'Rating climb'};
   const day = new Date().toLocaleDateString('en-GB', {weekday: 'long'});
-  const t = T.createTournament(field, {format: f, name: `${day} ${names[f]}`, tc: tcOf(o.tc), speed: o.speed, minutes: o.minutes, scoring: o.scoring});
+  const vid = o.variant && o.variant !== 'chess' ? o.variant : null;
+  const t = T.createTournament(field, {format: f, name: `${day} ${vid ? variantById(vid).name + ' ' : ''}${names[f]}`, tc: tcOf(o.tc), speed: o.speed, minutes: o.minutes, scoring: o.scoring, variant: vid});
   list.push(t); save(t, true);
   field = null; youReady = true;
   open(t); step();
@@ -480,14 +502,27 @@ function paintBoards(t, box = $('cmpBoards')) {
     }
     card.querySelector('.mbname.b').textContent = st.black.name;
     card.querySelector('.mbname.w').textContent = st.white.name;
-    miniBoard(card.querySelector('.mb'), st.fen, st.last);
+    if (st.variant) miniVBoard(card.querySelector('.mb'), st.variant, st.fen, st.last); else miniBoard(card.querySelector('.mb'), st.fen, st.last);
   }
   const h = box.previousElementSibling; if (h) h.hidden = !ids.length;
+}
+/* a variant's small board: any size, the variant's own pieces */
+function miniVBoard(node, vid, fen, last) {
+  const P = parseFen(fen);
+  node.innerHTML = '';
+  node.classList.add('mv');
+  node.style.setProperty('--mf', P.files); node.style.setProperty('--mr', P.ranks);
+  for (let r = P.ranks - 1; r >= 0; r--) for (let f = 0; f < P.files; f++) {
+    const name = String.fromCharCode(97 + f) + (r + 1), c = P.cells[r][f];
+    const s = el('span', {class: 'ms' + ((r + f) % 2 ? '' : ' d') + (last && (name === last.from || name === last.to) ? ' last' : '')});
+    if (c && !c.wall) s.append(pieceEl(vid, c.l, c.side, c.promo, 'vp'));
+    node.append(s);
+  }
 }
 const FENP = {p: 1, n: 2, b: 3, r: 4, q: 5, k: 6};
 function miniBoard(node, fen, last) {
   const rows = fen.split(' ')[0].split('/'), from = last & 127, to = (last >> 7) & 127;
-  node.innerHTML = '';
+  node.innerHTML = ''; node.classList.remove('mv'); node.style.removeProperty('--mf'); node.style.removeProperty('--mr');
   rows.forEach((row, ri) => {
     let f = 0;
     for (const ch of row) {
@@ -513,6 +548,12 @@ function gameRow(t, g) {
     el('small', {}, `${Math.ceil((g.moves?.length || 0) / 2)} moves`));
 }
 function replay(t, g) {
+  if (t.variant) {
+    const P = p => ({name: p.name, type: p.type === 'vbot' ? 'engine' : p.type, engine: p.type === 'vbot' ? 'builtin' : p.engine, model: p.model, provider: p.provider, rating: p.rating});
+    if (!(g.moves || []).length) { toast('No moves to replay'); return; }
+    vReplay({id: 'tg-' + g.id, fairy: t.variant, startFen: undefined, movesUci: g.moves, players: [P(T.playerById(t, g.w)), P(T.playerById(t, g.b))], result: g.result, reason: g.reason});
+    return;
+  }
   const pos = new C.Pos(C.START_FEN, 0, false), raw = [];
   for (const u of g.moves || []) { const m = pos.fromUci(u); if (!m) break; raw.push(m); pos.make(m); }
   if (raw.length < 1) { toast('No moves to replay'); return; }

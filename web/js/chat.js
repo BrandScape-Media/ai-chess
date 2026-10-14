@@ -20,7 +20,10 @@ export function showTab(t) {
   if (t === 'new' && tabNow !== 'new' && hooks.newTab) hooks.newTab();   /* coming from elsewhere: start at the Play hub */
   tabNow = t;
   for (const b of document.querySelectorAll('[data-tab]')) b.classList.toggle('on', b.dataset.tab === t);
-  for (const id of ['play', 'review', 'new', 'chat', 'history', 'puzzles', 'compete']) $('tab-' + id).hidden = id !== t;
+  const vm = !!(hooks.vmode && hooks.vmode());   /* a variant game on the stage: its own moves tab */
+  for (const id of ['play', 'review', 'new', 'chat', 'history', 'puzzles', 'compete']) $('tab-' + id).hidden = id !== t || (id === 'play' && vm);
+  $('tab-variant').hidden = !(t === 'play' && vm);
+  if (hooks.tabChanged) hooks.tabChanged(t);
   if (t === 'history' && hooks.history) hooks.history();
   if (t === 'review' && hooks.review) hooks.review();
   if (t === 'puzzles' && hooks.puzzles) hooks.puzzles();
@@ -30,7 +33,7 @@ export function showTab(t) {
 }
 export const activeTab = () => tabNow;
 /* the chat belongs to a game: hidden on the puzzle board, read-only when replaying a game from the history */
-const chatShown = () => S.chatOn && !S.pzBoard;
+const chatShown = () => S.chatOn && !S.pzBoard && !(hooks.vmode && hooks.vmode());
 export function chatVisible() {
   for (const b of document.querySelectorAll('[data-tab="chat"]')) b.hidden = !chatShown();
   $('chatForm').hidden = !!S.replay;

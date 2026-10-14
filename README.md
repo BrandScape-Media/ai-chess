@@ -22,7 +22,7 @@ On Windows you can also double-click `AI Chess.bat`; on Linux/macOS run `./run.s
 
 ## Pick your opponent
 
-**Play bots** lets you pick an opponent from a gallery (engines, historic programs, your AI model) and choose White, Black or random. **Play variants** does the same for Chess960, King of the Hill, Three-check and more. In the **Playground**, each side (White and Black) can be **Human**, a **Chess engine** or a **Local AI model**, so any matchup works: you vs a model, a model vs Stockfish, two models against each other, or one model against itself.
+**Play bots** lets you pick an opponent from a gallery (engines, historic programs, your AI model) and choose White, Black or random. **Play variants** does the same for 57 variants, from Chess960 and Crazyhouse to Duck chess, Capablanca, Xiangqi and Shogi. In the **Playground**, each side (White and Black) can be **Human**, a **Chess engine** or a **Local AI model**, so any matchup works: you vs a model, a model vs Stockfish, two models against each other, or one model against itself.
 
 ### Local AI models: choose a backend
 
@@ -57,7 +57,7 @@ Running a model on another PC? Change the address in **⚙ Settings → AI provi
 | Engine | |
 |---|---|
 | **Stockfish** | the strongest open-source engine, strength from ~1320 Elo to full |
-| **Fairy-Stockfish** | Stockfish for variants (King of the Hill, Three-check) |
+| **Fairy-Stockfish** | Stockfish for variants: the big-board build plays about 90, Xiangqi and Shogi included |
 | **Leela Chess Zero** | neural-network engine in the AlphaZero style |
 | **Maia 1100–1900** | Leela nets trained on human games: plays like a real person of that rating |
 | **Berserk**, **Koivisto**, **Obsidian**, **Caissa**, **Clover**, **Halogen** | more top engines, each with its own style |
@@ -82,13 +82,21 @@ Like the chat on chess.com: talk to the model while you play. Every computer opp
 
 ## Also
 
-* **Variants:** Chess960 (Fischer Random), King of the Hill, Three-check, Transcendental chess, any position from a FEN. The rules are explained to the models in their prompt.
+* **Variants:** Chess960 (Fischer Random), King of the Hill, Three-check, Transcendental chess and any position from a FEN on the normal board, plus 52 more on the variant board, each with its own picture and its own rating:
+  * same pieces, new rules: Crazyhouse, Atomic, Antichess, Horde, Racing Kings, Duck chess, Five-check, Extinction, Knightmate, Placement and more;
+  * new pieces: Seirawan, S-House, Almost Chess, Amazon, Grasshopper, Nightrider, Chigorin;
+  * bigger boards: Capablanca, Capahouse, Gothic, Embassy, Janus, Grand, Shako, Modern, Courier;
+  * Xiangqi, Manchu, Janggi, Shogi, Minishogi, Kyoto Shogi, Dobutsu Shogi, Mini Xiangqi;
+  * old and Southeast Asian chess: Shatranj, Chaturanga, Makruk, Ouk Chatrang, Sittuyin;
+  * small boards: Los Alamos, Gardner, Judkins and Goro Goro Shogi, Jeson Mor, Ataxx.
+
+  The rules come from Fairy-Stockfish's rules library (offline, in WebAssembly). Fairy-Stockfish plays them at any strength, the variant bot plays them without it, and AI models get the rules, the board and the legal moves. Variant tournaments work in every format.
 * **Arrows and circles** like on chess.com (right-click drag; Shift/Alt/Ctrl for colors), plus a sneaky option: **let the opponent peek at your arrows**. Plan honestly, or bait it.
 * **Clocks:** bullet (1, 1|1, 2|1), blitz (3, 3|2, 5), rapid (10, 10|5, 15|10) or 30 minutes. Everybody plays on the clock: engines manage their time like in a real game, and AI models can lose on time (or play untimed if you prefer).
 * **Premoves:** queue one or several moves while the opponent thinks. In chaos mode they are played even when they've become illegal.
 * **Game history**, grouped by day: every game as a card with the result, your rating change, how it ended, your accuracy once reviewed, and buttons to review, replay or copy the PGN. Each game keeps its chat, shown read-only when you replay it.
 * **Your level:** the first time you start, pick how well you play (New to chess to Expert). It sets your starting rating and how strong your opponents are by default. Change it any time in Settings, You.
-* **Game Review**, like on chess.com: when a game ends, Stockfish looks at every move (a quick pass fills the result card in seconds, then a deep pass at depth 18). The **Review** tab shows both sides' accuracy and an estimated game rating, the opening's name, an evaluation graph you can click, every move class for both sides (Brilliant, Great, Best, Excellent, Good, Book, Inaccuracy, Miss, Mistake, Blunder) and how each phase went. Step through it with a coach that explains every move from the engine's lines (what the move allowed, what the better one wins), jump between key moments with `[` and `]`, and press **Explain** to have your own AI model explain a move, given only the engine's facts so it doesn't make things up. Reviews are saved with the game and reopen instantly from the history.
+* **Game Review**, like on chess.com: when a game ends, Stockfish looks at every move (a quick pass fills the result card in seconds, then a deep pass at depth 18). The **Review** tab shows both sides' accuracy and an estimated game rating, the opening's name, an evaluation graph you can click, every move class for both sides (Brilliant, Great, Best, Excellent, Good, Book, Inaccuracy, Miss, Mistake, Blunder) and how each phase went, with a rating for each phase (opening, middlegame, endgame). Illegal moves from chaos games are explained: a piece that appeared out of nowhere, took its own piece, jumped over others or moved like it can't. Step through it with a coach that explains every move from the engine's lines (what the move allowed, what the better one wins), jump between key moments with `[` and `]`, and press **Explain** to have your own AI model explain a move, given only the engine's facts so it doesn't make things up. Reviews are saved with the game and reopen instantly from the history.
 * **Retry your mistakes:** the position before each of your mistakes becomes a little puzzle (the answer shows after two tries), one by one or as a drill through the whole game. The ones you get wrong come back later in **Puzzles → Your mistakes** until you get them right twice in a row.
 * **Puzzles:** about 3,000 puzzles from the lichess puzzle database (CC0) come with the game, with your own puzzle rating:
   * **Daily puzzle** with a streak, **Puzzle Streak** (one mistake ends it), **Puzzle Rush** (5 minutes, 3 strikes, and bonus seconds for runs of correct moves, like lichess Storm) and **Puzzle Battle** (race a puzzle bot through the same puzzles for 3 minutes).
@@ -100,6 +108,8 @@ Like the chat on chess.com: talk to the model while you play. Every computer opp
 * **Assistance like on chess.com:** evaluation bar, move feedback (best, excellent, inaccuracy, mistake, blunder), suggestion and threat arrows, engine line. Switch them on before the game or from the gear during it. They use Stockfish (or another installed engine) and work offline.
 * **Ratings:** engines show realistic Elo estimates, every AI model gets a random rating for the game, and your own rating goes up and down as you win and lose.
 * **Hints** (best move from Stockfish or the built-in engine) and **takebacks**, each can be switched off.
+* **Draw offers** both ways: offer a draw from the game controls; engines take it when they are not better, AI models decide in character. AI models can also offer a draw or resign a hopeless game.
+* **AI models play better:** they get a list of the pieces (easier for them than the board diagram), the last move, their clock (and think less when time is short; a quick move is played for them if they take too long), and after an illegal try, the list of legal moves.
 * Move list with the time spent on every move. Takebacks also take back the clock, and while reviewing, the clocks show the time left at that move. A crown marks the winning move and `???` an illegal one.
 * Click a player's picture or name for their card: change an engine's strength, or allow illegal moves for that side, in the middle of a game.
 * Flip board, PGN/FEN export, the game is saved automatically.
@@ -125,9 +135,10 @@ python server.py [--port 8800] [--lan] [--no-browser] [--app | --tab] [--exit-wh
 node tests/core.test.js
 node tests/tourney.test.js
 node tests/league.test.js
+node tests/variants.test.js
 ```
 
-Move generation is checked with perft against the standard test positions (including Chess960), plus variants, unchecked moves and the engine. The tournament tests check pairings (no Swiss rematches, colour balance, byes), the knockout bracket, arena scoring and the rating climb; the league tests check promotion, relegation and the simulated rivals.
+Move generation is checked with perft against the standard test positions (including Chess960), plus variants, unchecked moves and the engine. The variant tests check every variant against the rules library (pieces, moves, random games to the end), the variant bot and the ratings. The tournament tests check pairings (no Swiss rematches, colour balance, byes), the knockout bracket, arena scoring and the rating climb; the league tests check promotion, relegation and the simulated rivals.
 
 ## Privacy and security
 
@@ -135,4 +146,4 @@ The server listens on `localhost` only (unless `--lan`), only accepts requests f
 
 ## License
 
-GPL-3.0-or-later. Piece artwork from the [lichess](https://github.com/lichess-org/lila) project; see [web/pieces/LICENSES.md](web/pieces/LICENSES.md). Puzzles from the lichess puzzle database and opening names from [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings) (both CC0). Chess engines are separate programs with their own licenses: [Stockfish](https://github.com/official-stockfish/Stockfish) (GPL-3.0, an unmodified official build; source at that link) ships inside the release builds; the others are downloaded only when you click Install.
+GPL-3.0-or-later. Piece artwork from the [lichess](https://github.com/lichess-org/lila) project; see [web/pieces/LICENSES.md](web/pieces/LICENSES.md). Puzzles from the lichess puzzle database and opening names from [lichess-org/chess-openings](https://github.com/lichess-org/chess-openings) (both CC0). Chess engines are separate programs with their own licenses: [Stockfish](https://github.com/official-stockfish/Stockfish) (GPL-3.0, an unmodified official build; source at that link) ships inside the release builds; the others are downloaded only when you click Install. The variant rules come from [ffish.js](https://github.com/fairy-stockfish/Fairy-Stockfish) (Fairy-Stockfish compiled to WebAssembly, GPL-3.0, unmodified, in `web/vendor/ffish/`).

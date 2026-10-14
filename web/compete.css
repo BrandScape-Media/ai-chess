@@ -172,3 +172,8 @@
 /* the tab body is a flex column: keep every block at its natural height (the bracket must not be squeezed) */
 #cmpBody>*{flex:none}
 .cmptable .th .n,.cmptable .th .n.big{font:600 11px/1 var(--sans);color:var(--faint)}
+/* a variant's small board */
+.mb.mv{grid-template-columns:repeat(var(--mf),1fr);aspect-ratio:var(--mf)/var(--mr)}
+.mb.mv .vp{inset:4%}
+.mb.mv .vp.tok svg{width:92%;height:92%}
+.cmpsel{background:var(--panel3);color:var(--text);border:0;border-radius:var(--r-ctl);padding:7px 10px;font-weight:550;max-width:100%}

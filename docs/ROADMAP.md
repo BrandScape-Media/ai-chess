@@ -6,6 +6,8 @@ What comes next, in build order. Done items move to the README.
 
 Done in 1.3.0: Stockfish ships with the game; deep review (depth 18) by default, saved with the game; the Review tab (accuracy, estimated game rating, opening name and book moves, evaluation graph, every class for both sides including Book and Miss, phases, key moments); a coach that explains every move from the engine's lines; "Explain" with your own AI model, given only the engine's facts; Retry your mistakes, one by one or as a drill (answer after two tries); Your mistakes in Puzzles, until solved twice in a row.
 
+Added in 1.4.0: a rating for each game phase, and illegal moves explained (a piece out of nowhere, taking its own piece, jumping over pieces, the wrong shape).
+
 Next:
 1. Better "Great" and "Brilliant": the engine's second-best move (MultiPV) to spot only-moves.
 2. Mistake themes in the coach (fork, pin, hanging piece) from the refutation line.
@@ -36,64 +38,25 @@ Next:
 2. Team events (engines against AI models), and a "gauntlet": you against every engine in turn.
 3. A weekly league recap card, and league trophies on the profile (Phase F).
 
-## Phase E: Variants (brainstorm, to build next)
+## Phase E: Variants (1.4.0)
 
-Today: Standard, Chess960, King of the Hill, Three-check, Transcendental, any position from a FEN. Every variant should get its own picture, a rules card with a small board showing the special rule, and a prompt that explains the rules to AI models.
+Done in 1.4.0: 52 variants on a second board, next to the five on the normal board (Chess960, King of the Hill, Three-check, Transcendental, a custom position).
 
-### Who plays them
+* **Rules** come from ffish, Fairy-Stockfish's rules compiled to WebAssembly (GPL-3.0, in `web/vendor/ffish/`): legal moves, notation and the end of the game for every variant, offline.
+* **The variant board** (`web/js/vboard.js`) handles any size from 3 by 4 to 12 by 10, pieces in hand and drops, promotion and gating choices, the duck, xiangqi and janggi on the points with river and palaces, shogi pentagons with their kanji, and the Dobutsu animals. New pieces are drawn from your piece set: compound pieces get a second piece as a badge (archbishop, chancellor, amazon, centaur), new movers are upside down (grasshopper, nightrider, cannon), the old short-range pieces are smaller (fers, alfil, mann), the royal knight wears a crown.
+* **Who plays**: Fairy-Stockfish (the big-board build, which the installer now picks; it plays 91 variants at any strength), the variant bot (a small search on the rules library, easy to hard, plays every variant even without Fairy-Stockfish), AI models (the rules, the board and the legal moves in the prompt), and people.
+* **A rating per variant**, provisional for the first games, on the variant cards, the board and the result card. Variant games count for the weekly league.
+* **Variant tournaments**: every format, in any variant; the background games run on the rules library and show on small boards of the right shape.
+* The variant's rules on its tab, a Krea 2 picture for every variant, the history and replays.
+* The groups: same pieces with new rules (Crazyhouse, Atomic, Antichess, Horde, Racing Kings, Duck chess and more), new pieces (Seirawan, Amazon, Grasshopper, Nightrider...), bigger boards (Capablanca, Grand, Shako, Courier...), Xiangqi and Shogi (with Janggi, Manchu and the small shogis), old and Southeast Asian chess (Shatranj, Chaturanga, Makruk, Sittuyin), small boards (Los Alamos, Gardner, Jeson Mor, Ataxx).
 
-* **The built-in engine** (`core.js`) learns each variant's rules: move generation, end of game, a few evaluation terms. It is the opponent that always works, and it checks every move.
-* **Fairy-Stockfish** (already in the catalog) plays almost every variant below at full strength through `UCI_Variant`. It becomes the default engine for variants; the other engines play standard chess only.
-* **AI models** get the rules in the prompt; the legal moves list matters even more here.
+Next:
+1. Fog of war: no engine plays it; it needs hidden squares on the board and a bot that plays without seeing.
+2. More variants from Fairy-Stockfish's variants.ini (Spartan, Orda, Synochess, Shinobi): they need the config loaded into both the rules library and the engine.
+3. A "variant of the week" in the league, and puzzles from your own variant games.
+4. The review for variant games (Fairy-Stockfish can analyse them; the board, graph and move classes need the variant board).
 
-### Tier 1: same board, same pieces, new rules (cheapest)
-
-1. **Crazyhouse**: captured pieces change sides and can be dropped back on the board. Needs a pocket next to the board and drop moves (`P@e4`).
-2. **Atomic**: a capture explodes and removes every piece around it except pawns; blow up the king to win.
-3. **Antichess** (giveaway): captures are forced and the goal is to lose all your pieces.
-4. **Horde**: White has 36 pawns and no king; Black must take them all.
-5. **Racing Kings**: no checks allowed, first king to the 8th rank wins.
-6. **Duck chess**: after every move you place the duck, a blocker nobody can capture; there is no check, you win by taking the king.
-7. **Fog of war** (dark chess): you only see the squares your pieces reach. Fun against AI models, who are already half blind.
-
-### Tier 2: new pieces on the 8 by 8 board
-
-Pieces from the chess variants wiki's list, each needing its own art:
-* **Archbishop** (bishop + knight), **Chancellor** (rook + knight), **Amazon** (queen + knight).
-* **Camel** (3,1 leaper), **Zebra** (3,2), **Wildebeest** (knight + camel), **Grasshopper** (hops over a piece and lands just behind it), **Knight-rider**, **Alfil** and **Ferz** (the old bishop and queen of shatranj), **Wazir**, **Sergeant** and **Berolina** pawns (move diagonally, capture straight).
-* Variants built on them: **Seirawan chess** (hawk and elephant enter the board from the back rank), **Almost Chess** (a chancellor instead of the queen), **Amazon chess**, **Grasshopper chess**, **Shatranj** (the medieval game), and a **Fairy mix** where each side gets random fairy pieces.
-
-### Tier 3: bigger boards and other families (most work)
-
-* **Capablanca chess** (10 by 8, archbishop and chancellor), **Grand chess** (10 by 10). `core.js` uses a 0x88 board, which fits 10 files but not 10 ranks: Grand chess needs a new board layout, and the board, arrows and pictures must handle any size.
-* **Xiangqi**, **Shogi**, **Makruk**: whole other chess families with their own boards and pieces. Fairy-Stockfish plays them; the board would need a new look per family.
-
-### Art
-
-* Every variant: a Krea 2 card picture like the hub cards, in the same sticker style.
-* Fairy pieces: drawing them in all 12 piece sets is not realistic. Plan: one **variant piece set** in a clean classic style, white and black, built from the standard silhouettes with a clear mark for the extra move (for example a knight's head on a bishop's body for the archbishop), drawn as SVG so they stay sharp; Krea 2 for first designs. A game with fairy pieces uses that set for the fairy pieces only. The wiki's own images are CC-BY-SA, so we draw our own.
-
-### Ratings and modes
-
-* A separate rating per variant (provisional for the first 5 games), shown on the variant card.
-* Variant tournaments, and a "variant of the week" in the league.
-* Puzzles for variants are out of scope (no open database).
-
-### Suggested order
-
-1. 1.4.0: Crazyhouse, Atomic, Antichess, Horde, Racing Kings (Fairy-Stockfish plus `core.js` rules), the rules cards and the art.
-2. 1.4.1: Duck chess and Fog of war (new interaction: placing the duck, hidden squares).
-3. 1.4.2: the fairy piece set, then Seirawan, Almost Chess, Amazon, Grasshopper and Shatranj.
-4. Later: Capablanca and Grand chess (board sizes), then the other families.
-
-### Open questions
-
-1. Which three variants matter most to you for 1.4.0?
-2. Should variants be rated separately from your main rating?
-3. Is Fairy-Stockfish as the only real engine for variants fine, or should the built-in engine reach a good strength in each?
-4. Fog of war: should AI models see the whole board (easier for them) or only their own fog?
-
-## Phase F: your account (research done, to build after E)
+## Phase F: your account (research done, to build next)
 
 A home for you as a player: who you are, how you are improving, and what happened while you were away. Everything stays on this computer, so "friends", "messages" and "notifications" become your regular opponents, your saved game chats and local events.
 
@@ -193,6 +156,62 @@ Real friends and who is online, messages to other people, followers and profile 
 4. "Opponents" or "Rivals" for the friends list?
 5. Bundle SVG flags (about 250 KB) or show a two-letter country code?
 6. Keep Elo, or move to Glicko-2 with a "?" while a rating is still settling?
+
+### Also in Phase F: polish and a name (added 2026-10-14)
+
+* **Settings**: one column of plain sections instead of tabs inside a dialog (Profile, Board and pieces, Play, AI models, Engines, Chat, About), a search box, live previews (the board theme on a small board, a piece set row), and every switch explained in one line under it instead of in a tooltip.
+* **The rail on the left**: group it (Play, Puzzles, Compete, then History and Settings at the bottom), a small rating chip under Play, a dot on Compete when a tournament game waits, a collapsed icon-only mode on small screens, and a profile picture at the bottom that opens the Phase F profile.
+* **A new name and icon (ideas)**: "AI Chess" is plain and hard to search. Candidates:
+  * **Rookery**: a rook's home, a free and friendly place; easy to say, the icon is a rook with a small spark.
+  * **Open Board**: says free and open source; the icon is a board corner.
+  * **Kibitz**: chess slang for someone commenting on a game, fits the AI models that chat and coach.
+  * **Fianchetto**: memorable for chess players, harder for everyone else.
+  * **Homegame**: your own chess site at home, offline.
+  The icon would be made in the same sticker style as the avatars, with a flat version for the tab and the taskbar. Check that the name is free on GitHub, as a .com/.org and in app stores before choosing.
+
+### Also in Phase F: more AI (brainstorm)
+
+* **An MCP server**: AI Chess offers its tools to any AI client (Claude Desktop, LM Studio, other MCP hosts): "start a game", "make a move", "show the board", "analyse this position", "review my last game", "find a puzzle on forks". You could then play or study from your AI chat, and agents could use the engines.
+* **Tools for the AI models inside the app** (models that support tool calls): ask the engine for an evaluation or the best moves at a set strength, look up the opening (bundled names, or the lichess opening explorer online: how often a move is played and how it scores), the endgame tablebase (lichess, online, 7 pieces), search your own game history ("the last time I played the Sicilian"). A coach that checks itself against the engine instead of guessing.
+* **Online data, always optional**: lichess opening explorer and tablebase APIs (free, no key), the lichess masters database for "what did the grandmasters play here". Offline the app works as now.
+* **A coach mode**: talk to a model about the position on the board, it can set up lines on a second board, and every claim is checked with the engine first.
+
+## Phase G: bots with personality (brainstorm, after F)
+
+Like the chess.com bots: each one a character with a picture, a rating, a style and lines to say.
+
+### Bots without AI (always available)
+
+* A bot = a strength (an engine capped at an Elo, or the built-in engine at a level) plus a **style** that reorders the engine's top moves:
+  * favourite openings (a small opening book per bot: "always plays the London", "loves the King's Gambit");
+  * favourite pieces ("never trades its knights", "brings the queen out early");
+  * targets ("goes after your queen", "grabs every pawn", "trades down to an endgame");
+  * temperament (attacks the king, castles late, blunders when short of time, offers draws when behind).
+  The engine gives its best few moves with their scores; the style adds a bonus to the moves it likes and picks among the ones that are not much worse. Strength stays honest, the character shows.
+* Prerecorded lines for each bot: greeting, after a capture, when winning, when losing, at the end. The chat engine already has events for these.
+* Variant bots with their own plans: "drops every piece it captures right away" (Crazyhouse), "races the king from move one" (Racing Kings), "keeps the duck next to your king" (Duck chess), "explodes everything" (Atomic).
+
+### Bots with an AI model (when a model is connected)
+
+* More personality: they talk freely, remember the game, react to your chat, have a backstory and a way of speaking.
+* **Engine-assisted moves**: each AI bot has an engine at its own level ("Juan" asks a 700 Elo engine, "Mira" a 1600 one). The model gets that engine's top three moves with scores and picks one in character, then says why. The engine keeps it legal and at its level; the model gives it a voice and a style. Without the engine the model plays on its own, as now.
+* A roster screen like chess.com's: bots grouped by level (Beginner, Intermediate, Advanced, Master), locked ones that open as you beat the one before, and a "bot of the week".
+
+## Phase H: getting it to people, and online play (brainstorm)
+
+### Presenting the app
+
+* A one-page website (GitHub Pages, free): what it is in one sentence ("Free chess with AI opponents, engines, puzzles and tournaments. Runs on your computer, no account, no ads"), a short video of a game against a talking model, the downloads, and screenshots of review, puzzles, tournaments and variants.
+* Where people look: r/chess, r/LocalLLaMA (local models playing chess is a natural fit), r/selfhosted, Hacker News "Show HN", lichess forums, Product Hunt, chess YouTubers and streamers who play bots.
+* Short clips work best: "my local model playing atomic chess and trash-talking", "Stockfish 1200 against a 7B model".
+* GitHub: a clean README with a GIF at the top, topics (chess, llm, stockfish, local-ai), releases for every system, an issue template for bugs and ideas.
+* Translations later (the text is plain and short, so it translates well).
+
+### Online play
+
+* **Peer-to-peer first** (no server to pay for): WebRTC between two browsers, with a tiny public signalling step or a game code you send to a friend; on a LAN it can connect directly. Good for playing friends; no matchmaking, no ratings that strangers can trust.
+* **A small server later** if people want matchmaking: a lobby, rated games and tournaments between people, puzzles battles online. That needs hosting, accounts and moderation, which is real work and some cost; lichess already does this well, so the app's own strength stays the AI and offline side.
+* **A web version**: the app is already a web page with a small Python server. A hosted version could run with browser-only parts (the built-in engine, Stockfish in WebAssembly, ffish for variants, cloud AI keys stored in the browser). Local models would still need the desktop app, or a model server the browser can reach.
 
 ## Why (what makes the big sites sticky)
 

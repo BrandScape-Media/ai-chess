@@ -57,7 +57,7 @@ jobs:
       - name: Build
         shell: bash
         run: |
-          pyinstaller --noconfirm --onefile --windowed --name ai-chess --icon assets/ai-chess.ico --add-data "web${{ matrix.sep }}web" --add-data "bundle/stockfish${{ matrix.sep }}engines/stockfish" server.py
+          pyinstaller --noconfirm --onefile --windowed --name ai-chess --icon assets/ai-chess.ico --add-data "web${{ matrix.sep }}web" --add-data "bundle/stockfish${{ matrix.sep }}engines/stockfish" --exclude-module zstandard.backend_cffi --exclude-module zstandard._cffi server.py
           if [ -f dist/ai-chess.exe ]; then mv dist/ai-chess.exe "dist/${{ matrix.asset }}"; else mv dist/ai-chess "dist/${{ matrix.asset }}"; fi
           ls -la dist
       - name: Smoke test (starts the program, checks the page and the included Stockfish)

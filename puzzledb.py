@@ -317,6 +317,7 @@ class PuzzleDB:
             self.broken = f"the puzzle database could not be opened ({e}). Remove it and install it again"
             return
         self.db, self.broken, self.misses = db, None, set()
+        self.ident = self._ident()
         self.R = [r for r, _ in ratings]
         self.cum = list(itertools.accumulate(n for _, n in ratings))   # puzzles up to and including each rating
         self.bits = {t: (bit, n) for t, bit, n in themes if 0 <= bit < MAX_BITS}
@@ -329,11 +330,25 @@ class PuzzleDB:
         """Windows can't replace or delete a file that is open, so the connection closes first."""
         if self.db:
             self.db.close()
-        self.db = self.info = None
+        self.db = self.info = self.ident = None
+
+    def _ident(self):
+        """Which file is there: another copy that removes or rebuilds the database leaves a different one (or none)."""
+        try:
+            st = self.path.stat()
+            return (st.st_ino, st.st_mtime_ns)
+        except OSError:
+            return None
 
     def _sync(self):
-        """Open a database that another copy of the program built since this one looked (two can share one data folder)."""
-        if not self.db and not self.busy() and self.path.exists():
+        """Follow what another copy of the program did since this one looked (two can share one data folder):
+        a database it built, removed or rebuilt."""
+        if self.busy():
+            return
+        if self.db and self._ident() != self.ident:
+            self._open()   # closes the old file, so its space is freed, then opens the new one if there is one
+            self.job = None
+        elif not self.db and self.path.exists():
             self._open()
             if self.db:
                 self.job = None   # an error from before, such as another copy installing, is over

@@ -13,7 +13,7 @@ rem Stockfish ships inside the program (downloaded once into .build\bundle); wit
 if not exist ".build\bundle\stockfish" ".build\venv\Scripts\python.exe" tools\bundle_stockfish.py .build\bundle
 set SF=
 if exist ".build\bundle\stockfish" set SF=--add-data "%~dp0.build\bundle\stockfish;engines\stockfish"
-".build\venv\Scripts\pyinstaller.exe" --noconfirm --log-level WARN --onefile --windowed --name ai-chess --icon "%~dp0assets\ai-chess.ico" --add-data "%~dp0web;web" %SF% --distpath "%~dp0dist" --workpath .build\work --specpath .build server.py || goto :err
+".build\venv\Scripts\pyinstaller.exe" --noconfirm --log-level WARN --onefile --windowed --name ai-chess --icon "%~dp0assets\ai-chess.ico" --add-data "%~dp0web;web" %SF% --exclude-module zstandard.backend_cffi --exclude-module zstandard._cffi --distpath "%~dp0dist" --workpath .build\work --specpath .build server.py || goto :err
 echo Built %~dp0dist\ai-chess.exe
 goto :eof
 :err

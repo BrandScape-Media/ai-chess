@@ -27,8 +27,8 @@ export function dailyMark(D, today, how) {
   }
   return true;
 }
-/* the streak as it stands today: it only breaks once a whole day is missed */
-export const dailyStreak = (D, today) => D.last === today || D.last === prevDay(today) ? D.streak || 0 : 0;
+/* the streak as it stands today: it only breaks once a whole day is missed, or today's solution was looked at */
+export const dailyStreak = (D, today) => D.last === today || (D.last === prevDay(today) && !(D.date === today && D.done === 'shown')) ? D.streak || 0 : 0;
 /* the last seven days, oldest first: 'done', 'miss', or for today 'today' (still open) / 'shown' */
 export function dailyWeek(D, today) {
   const out = [], hist = new Set(D.hist || []);

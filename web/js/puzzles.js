@@ -159,6 +159,7 @@ async function next() {
     rated: RATED.has(R.mode) && !R.replay, tally: TALLY.has(R.mode) && !R.replay && !(R.mode === 'daily' && P().daily.scored === p.id)};
   app.board(p.fen);
   app.setSides(new C.Pos(p.fen, 0, false).turn ^ 1);   /* you play the side that moves after the opponent's first move */
+  if (R.k === 1) boardInView();
   prefetch(R);
   renderPanel();
   setTimeout(() => autoPlay(pz), 650);   /* this puzzle, whatever is on the board by then */
@@ -181,9 +182,9 @@ function broken(pz) {
   R.n++; next();
 }
 /* called by the board after any move while a puzzle is on */
-export function puzzleMove(m) {
+export function puzzleMove(m, mover) {
   const pz = S.pz, R = S.pzRun;
-  if (!pz || !R || pz.state !== 'you') return;
+  if (!pz || !R || pz.state !== 'you' || (mover != null && S.seats[mover]?.type !== 'human')) return;   /* only your own moves answer a puzzle */
   const want = pz.moves[pz.idx], uci = C.uci(m, false), mate = S.pos.status().over && S.pos.inCheck();
   if (pz.practice) {
     if (uci === want || mate) return practiceDone(pz, '');
@@ -436,8 +437,11 @@ function nextPractice() {
   S.pz = {p: {id: it.id, fen: it.fen, r: null}, moves: [it.best], idx: 0, state: 'you', failed: false, rated: false, practice: it, you: it.side};
   app.board(it.fen);
   app.setSides(it.side);
+  if (R.n === 0) boardInView();
   renderPanel();
 }
+/* on a narrow screen the panel is under the board: bring the board back up when a run starts */
+function boardInView() { const b = $('board'); if (b && b.getBoundingClientRect().top < 0) b.scrollIntoView({block: 'nearest'}); }
 /* a move other than the engine's counts when it keeps about the same chances (within 4%) */
 async function goodEnough(pz, after) {
   const before = new C.Pos(pz.practice.fen, 0, false), q = new C.Pos(after.fen(), 0, false);
@@ -465,12 +469,16 @@ function record(pz, first) {
 }
 
 /* leave the run for the puzzle home (the board keeps the puzzle, but takes no moves) */
+/* leaving a battle that is under way counts as giving up, the same as the Give up button */
+function leaveBattle() { const R = S.pzRun; if (R && R.mode === 'battle' && !R.over && !R.setup && R.end) endBattle({res: 'loss', why: 'gaveup'}); }
 function toHome(v = 'home') {
+  leaveBattle();
   clearInterval(timer);
   S.pzRun = null; idleBoard(); stripNote('');
   view = v; renderPanel();
 }
 export function exitPuzzles() {
+  leaveBattle();
   clearInterval(timer);
   S.pz = null; S.pzRun = null; view = 'home';
   renderPanel();
@@ -478,10 +486,12 @@ export function exitPuzzles() {
 }
 
 /* ================= the panel ================= */
+let screen = null;
 export function renderPanel() {
   const box = $('pzBody'); if (!box) return;
   box.innerHTML = '';
   const R = S.pzRun;
+  if ((R || view) !== screen) { screen = R || view; box.scrollTop = 0; }   /* a new screen opens at the top */
   if (R) renderRun(box, R);
   else if (view === 'themes') renderThemes(box);
   else renderHome(box);
@@ -507,6 +517,7 @@ function renderHome(box) {
   box.append(el('div', {id: 'pzDb'}));
   box.append(el('p', {class: 'hint pzfoot'}, `${list ? list.length.toLocaleString('en') : 'About 3,000'} puzzles come with the game, from the lichess puzzle database (CC0), from beginner to master.`));
   paintDb();
+  if (S.pzBoard) box.append(el('button', {class: 'pzexit', type: 'button', onclick: exitPuzzles}, 'Back to my game'));
   if (db !== false) dbStatus().then(paintDb);   /* cached for a few seconds */
 }
 function dailyCard() {
@@ -601,6 +612,7 @@ function themeList(title, ts) {
       el('span', {class: 'acc'}, el('span', {class: 'v'}, pct == null ? '' : pct + '%'), pct == null ? null : el('span', {class: 'track'}, pct ? el('i', {style: `width:${pct}%`}) : null)),
       el('button', {type: 'button', class: 'pzgo', disabled: !can, title: can ? `Practise ${K.themeName(t)}` : 'Not enough puzzles for this theme yet', onclick: () => startRun('theme', {theme: t})}, 'Practise'));
   })));
+  if (S.pzBoard) box.append(el('button', {class: 'pzexit', type: 'button', onclick: exitPuzzles}, 'Back to my game'));
 }
 
 /* ---------- a run ---------- */
@@ -675,10 +687,10 @@ function buttons(R, pz) {
     else btns.append(B('Hint', hint, {disabled: waiting}), B('Solution', showSolution, {disabled: waiting}), B('Skip', () => { R.n++; next(); }));
   } else if (R.mode === 'daily') {
     if (after) btns.append(B('Back to puzzles', () => toHome(), {class: 'primary'}));
-    else btns.append(B('Hint', hint, {disabled: waiting || pz.hintAt === pz.idx}), B('Solution', showSolution, {disabled: waiting}));
+    else btns.append(B('Hint', hint, {disabled: waiting}), B('Solution', showSolution, {disabled: waiting}));
   } else if (RATED.has(R.mode)) {
     if (after) btns.append(B('Next puzzle', () => next(), {class: 'primary', disabled: !!R.loading}));
-    else btns.append(B('Hint', hint, {disabled: waiting || pz.hintAt === pz.idx}), B('Solution', showSolution, {disabled: waiting}),
+    else btns.append(B('Hint', hint, {disabled: waiting}), B('Solution', showSolution, {disabled: waiting}),
       B('Skip', skip, {disabled: waiting || !!R.loading, title: 'Counts as a miss'}));
   } else if (R.mode === 'streak') btns.append(B(`Skip (${R.skip})`, () => { R.skip = 0; next(); }, {disabled: !R.skip || waiting, title: 'One skip per streak'}), B('End', () => endRun(`You stopped at ${R.score}.`)));
   else if (R.mode === 'battle') {

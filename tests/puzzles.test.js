@@ -43,6 +43,7 @@ check('mark: the next day adds one', [D.streak, D.best], [2, 2]);
 check('streak shows on the day', dailyStreak(D, '2026-10-13'), 2);
 check('streak shows the day after', dailyStreak(D, '2026-10-14'), 2);
 check('streak is gone after a missed day', dailyStreak(D, '2026-10-15'), 0);
+check('streak is gone once today\'s solution is seen', dailyStreak({...D, date: '2026-10-14', done: 'shown'}, '2026-10-14'), 0);
 Object.assign(D, {date: '2026-10-15', done: ''});
 dailyMark(D, '2026-10-15', 'clean');
 check('mark: after a gap it starts again', [D.streak, D.best], [1, 2]);

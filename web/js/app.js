@@ -97,7 +97,10 @@ function engineMenus(i, want) {
   const w0 = want ? want.elo || 0 : +($('elo' + i).value || 0), wantElo = w0 ? Math.max(elo[0], Math.min(elo[1], w0)) : 0;
   fillSelect($('elo' + i), ELO_STEPS.filter(v => !v || (v >= elo[0] && v <= elo[1])).map(v => [v, v ? v + ' Elo' : 'Full strength']), wantElo);
   if (wantElo >= elo[0] && wantElo <= elo[1]) setOpt($('elo' + i), wantElo, wantElo + ' Elo');
-  fillSelect($('maia' + i), Object.keys(e.weights || {}).filter(k => /^\d+$/.test(k)).map(k => [k, k]), want ? want.maia || 1500 : ($('maia' + i).value || 1500));
+  /* an engine without Maia nets keeps the wanted rating, so it is there when you switch to Maia */
+  const wantMaia = String(want ? want.maia || STR().maia : ($('maia' + i).value || STR().maia));
+  fillSelect($('maia' + i), Object.keys(e.weights || {}).filter(k => /^\d+$/.test(k)).map(k => [k, k]), wantMaia);
+  if (!$('maia' + i).options.length) setOpt($('maia' + i), wantMaia, wantMaia);
 }
 function providerMenu(i, want) {
   const sel = $('prov' + i), keep = want || sel.value || sel.dataset.want || 'lmstudio';
@@ -308,7 +311,7 @@ for (const b of $('colorSeg').querySelectorAll('button')) b.onclick = () => {
   saveSetup(); renderSidePick(); renderMatchup();
 };
 function readSeat(i) {
-  return {type: $('type' + i).value, engine: $('engine' + i).value || 'builtin', level: +$('level' + i).value, elo: +$('elo' + i).value || 0, maia: $('maia' + i).value || '1500',
+  return {type: $('type' + i).value, engine: $('engine' + i).value || 'builtin', level: +$('level' + i).value, elo: +$('elo' + i).value || 0, maia: $('maia' + i).value || STR().maia,
     nodes: +$('nodes' + i).value, depth: +$('depth' + i).value || 0, movetime: +$('movetime' + i).value, provider: $('prov' + i).value, model: $('model' + i).value.trim(),
     think: $('think' + i).value, sees: $('sees' + i).value, img: $('img' + i).value, hint: $('hint' + i).checked, free: $('free' + i).checked};
 }
@@ -402,7 +405,8 @@ function saveEndChat() {
   if (!S.over || S.replay || S.recorded !== S.gameKey) return;
   clearTimeout(endChatT);
   const id = S.gameKey;
-  endChatT = setTimeout(() => { if (S.gameKey === id) api('/api/history', {update: {id, chat: (S.chatLog || []).slice(-60)}}).catch(() => {}); }, 1200);
+  const chat = (S.chatLog || []).slice(-60);   /* taken now: a Rematch or a replay within the wait must not lose it */
+  endChatT = setTimeout(() => api('/api/history', {update: {id, chat}}).catch(() => {}), 1200);
 }
 const tcName = c => !c ? '' : c.inc ? `${c.base / 60000} | ${c.inc / 1000}` : `${c.base / 60000} min`;
 function fmtDate(t) {
@@ -450,7 +454,7 @@ async function renderHistory() {
       const me = meOf(g), out = outOf(g), opp = me >= 0 ? g.players[me ^ 1] : g.players[g.winnerSide === 1 ? 1 : 0];
       const av = el('div'); paintAvatar(av, opp, 'avatar');
       const name = me >= 0 ? el('span', {class: 'nm'}, opp.name) : el('span', {class: 'nm'}, `${g.players[0].name} vs ${g.players[1].name}`);
-      const sub = [REASON(g.reason) + (g.plies ? ` in ${Math.ceil(g.plies / 2)} moves` : ''), tcName(g.clock), g.variant ? VARIANT_NAME[g.variant] : g.startName].filter(Boolean).join(' · ');
+      const sub = [REASON(g.reason) + (g.plies ? ` in ${Math.ceil(g.plies / 2)} move${Math.ceil(g.plies / 2) === 1 ? '' : 's'}` : ''), tcName(g.clock), g.variant ? VARIANT_NAME[g.variant] : g.startName].filter(Boolean).join(' · ');
       const side = me >= 0 ? el('img', {class: 'hside', src: `pieces/cburnett/${me ? 'b' : 'w'}K.svg`, alt: '', title: `You played ${SIDE[me]}`}) : null;
       const label = out === 'side' ? (g.result === '1-0' ? '1-0' : '0-1') : {win: 'Win', loss: 'Loss', draw: 'Draw'}[out];
       const d = g.delta && me >= 0 ? g.delta.delta : null;
@@ -522,7 +526,7 @@ function replayGame(g, {quiet = false} = {}) {
 /* a different player (or model/engine) takes over side i right away, from the current position */
 function applySeat(i) {
   const P = S.seats[i];
-  if (!P || !S.pos || S.setupDirty || S.over) { render(); return; }   /* a finished game stays as it was: the choice is for the next one */
+  if (!P || !S.pos || S.setupDirty || S.over || S.pzBoard) { render(); return; }   /* a finished game, or the puzzle board, stays as it was: the choice is for the next game */
   const c = readSeat(i);
   const same = c.type === P.type && (c.type !== 'llm' || (c.model === P.model && c.provider === P.provider)) && (c.type !== 'engine' || c.engine === P.engine);
   if (same) { liveApply(i); return; }
@@ -539,7 +543,7 @@ function applySeat(i) {
 }
 /* options that change how the current player plays */
 function liveApply(i, k) {
-  const P = S.seats[i]; if (!P || S.setupDirty) return;
+  const P = S.seats[i]; if (!P || S.setupDirty || S.pzBoard) return;
   const c = readSeat(i);
   if (c.type !== P.type) return;
   if (k === 'sees' && P.sees !== c.sees) { P.convo = []; P.lastPly = -1; }
@@ -547,7 +551,9 @@ function liveApply(i, k) {
   rate(P);
   render(); syncRelay();
 }
+let setupForNext = false;   /* the setup was changed on the puzzle board: it is for the next game, and Back to my game keeps it */
 function saveSetup() {
+  if (S.pzBoard) setupForNext = true;
   try {
     localStorage.setItem('aichess.setup', JSON.stringify({seats: [readSeat(0), readSeat(1)], variant: $('variant').value, start: $('start').value,
       fen: $('fenIn').value, peek: $('peek').checked, rnd: $('rnd').checked, chaos: $('chaos').checked, tc: $('tc').value, tcLLM: $('tcLLM').checked, hints: $('allowHints').checked, undo: $('allowUndo').checked}));
@@ -607,7 +613,7 @@ function startGame() {
     if (P.type === 'llm' && !P.model) { toast(`No model chosen for ${SIDE[i]}: the built-in engine plays instead`); Object.assign(P, {type: 'engine', engine: 'builtin', level: STR().level}); }
   }
   S.gameId++; cancelThinking();
-  S.pz = null; S.pzRun = null; S.pzBoard = false;
+  S.pz = null; S.pzRun = null; S.pzBoard = false; setupForNext = false;
   S.gameKey = newKey(); S.replay = null; S.setupDirty = false;
   for (const P of seats) rate(P, true);
   const tc = timeControl();
@@ -1044,6 +1050,7 @@ function setFree(i, v) {
 const pcardOpen = (pfx, e) => { e.stopPropagation(); const side = +$('clock' + pfx).dataset.side; openPlayer(side, $('av' + pfx)); };
 for (const pfx of ['Top', 'Bot']) {
   $('av' + pfx).onclick = e => pcardOpen(pfx, e);
+  $('av' + pfx).onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pcardOpen(pfx, e); } };   /* the picture is a button for the keyboard too */
   $('name' + pfx).onclick = e => pcardOpen(pfx, e);
 }
 document.addEventListener('pointerdown', e => { const pop = $('strengthPop'); if (!pop.hidden && !pop.contains(e.target) && !e.target.closest('.player .avatar, .player .name')) pop.hidden = true; });
@@ -1081,9 +1088,9 @@ function renderStrips(vp) {
     const av = $('av' + pfx), type = P ? P.type : 'human';
     paintAvatar(av, P, 'avatar');
     /* the picture and the name open the player card (strength, illegal moves, hints) */
-    const card = P && P.type === 'engine' && !S.replay ? 'Click to change the strength and more' : 'Click for the player card';
-    av.title = `${{human: 'Human', engine: 'Chess engine', llm: 'AI model', agent: 'Agent'}[type] || ''}. ${card}`;
-    $('name' + pfx).title = (P && P.type === 'llm' ? P.model + ' @ ' + P.provider + '. ' : '') + card;
+    const card = type === 'puzzle' ? '' : P && P.type === 'engine' && !S.replay ? 'Click to change the strength and more' : 'Click for the player card';
+    av.title = [{human: 'Human', engine: 'Chess engine', llm: 'AI model', agent: 'Agent', puzzle: 'Puzzle'}[type], card].filter(Boolean).join('. ');
+    $('name' + pfx).title = [P && P.type === 'llm' ? P.model + ' @ ' + P.provider : '', card].filter(Boolean).join('. ');
     $('strip' + pfx).classList.toggle('turn', !S.over && vp.turn === c);
     $('clock' + pfx).dataset.side = c;
     const note = P && P.pzNote, badge = $('badge' + pfx);   /* Puzzle Battle: the bot's score (puzzles.js) */
@@ -1589,7 +1596,7 @@ function relayState() {
     over: S.over, fullmove: p.full, inCheck: p.inCheck(), checks: S.variant === C.V_3CHECK ? p.checks.slice() : undefined,
     moves: S.moves.map(m => C.uci(m, S.c960)), movesRaw: S.moves.slice(), san: S.sans, lastSan: S.sans.length ? S.sans[S.sans.length - 1] : null,
     legal: lu, board: ascii(p), clock: S.clock ? {base: S.clock.base, inc: S.clock.inc, ms: S.clock.ms, llmFree: !!S.clock.llmFree} : null,
-    times: S.times, clockAt: S.clockAt,
+    times: S.times, clockAt: S.clockAt, setupDirty: !!S.setupDirty,
     chatLog: (S.chatLog || []).slice(-100), shapes: {arrows: S.arrows, circles: S.circles},
   };
   if (S.config.agent) {
@@ -1622,10 +1629,12 @@ async function tryRestore() {
     const pos = new C.Pos(fen, variant, c960), sans = [];
     S.lastOn = new Map();
     for (const m of d.movesRaw) { remember(pos); sans.push(pos.san(m)); pos.make(m); }
-    for (const i of [0, 1]) writeSeat(i, d.seats[i]);
-    $('variant').value = variant; $('chaos').checked = !!d.chaos; seatVis(0); seatVis(1);
+    /* the setup is the restored game's, unless it was already changed for the next game (a level picked mid-game or during puzzles, a colour) */
+    const forNext = !!d.setupDirty || setupForNext; setupForNext = false;
+    if (!forNext) { for (const i of [0, 1]) writeSeat(i, d.seats[i]); $('variant').value = variant; $('chaos').checked = !!d.chaos; }
+    seatVis(0); seatVis(1);
     S.gameId++; cancelThinking(); cancelPremove(); S.pzBoard = false;
-    S.gameKey = d.gameKey || newKey(); S.replay = null; S.setupDirty = false; S.fb = new Map(); S.an = null; S.explore = null; S.pz = null; S.pzRun = null;
+    S.gameKey = d.gameKey || newKey(); S.replay = null; S.setupDirty = forNext; S.fb = new Map(); S.an = null; S.explore = null; S.pz = null; S.pzRun = null;
     S.seats = d.seats.map(seatFrom).map(P => rate(P));
     S.clock = d.clock ? {...d.clock, ms: d.clock.ms.slice()} : null;
     S.times = Array.isArray(d.times) ? d.times.slice(0, d.movesRaw.length) : [];
@@ -1766,7 +1775,7 @@ function applyLevel(t, {rating = false, opponent = false} = {}) {
   SET.profile.level = t.id;
   if (rating) { SET.profile.rating = t.rating; if (!SET.puzzles.played) SET.puzzles.rating = t.puzzle; }
   saveSettings();
-  if (gameOn()) S.setupDirty = true;   /* a game in progress keeps its opponents: this is for the next one */
+  if (gameOn()) { S.setupDirty = true; syncRelay(); }   /* a game in progress keeps its opponents: this is for the next one */
   const str = {level: t.level, elo: t.elo, maia: t.maia, nodes: t.nodes};
   for (const i of [0, 1]) writeSeat(i, {...readSeat(i), ...str});
   if (opponent) {
@@ -1776,16 +1785,17 @@ function applyLevel(t, {rating = false, opponent = false} = {}) {
   seatVis(0); seatVis(1); saveSetup(); renderModeLists();
   if (S.pos && !S.setupDirty && !S.over) { applySeat(0); applySeat(1); }
   const me = S.seats.findIndex(P => P && P.type === 'human');
-  if (rating && me >= 0 && !S.over) S.seats[me].rating = SET.profile.rating;
+  if (rating && me >= 0 && !S.over && !S.pzBoard) S.seats[me].rating = SET.profile.rating;
   if (S.pos) render();
 }
 /* the first start: how well do you play? (skipped by players who already have games or puzzles behind them) */
 const needsWelcome = () => relayOK && !SHOT && SET._loaded && !SET.profile?.level && !(SET.profile?.games > 0) && !(SET.puzzles?.played > 0);
-function welcome() {
+/* hadSetup: someone who used an older version keeps the opponents they set up; only the strength follows the level */
+function welcome(hadSetup = false) {
   return new Promise(resolve => {
     const d = $('welcome'), fallback = tierById('intermediate');
     let pick = fallback, closed = false;
-    const done = t => { if (closed) return; closed = true; if (d.open) d.close(); applyLevel(t, {rating: true, opponent: true}); resolve(); };
+    const done = t => { if (closed) return; closed = true; if (d.open) d.close(); applyLevel(t, {rating: true, opponent: !hadSetup}); resolve(); };
     d.innerHTML = '';
     d.append(el('div', {class: 'wbox'},
       el('div', {class: 'whead'}, el('img', {src: 'avatars/coach.webp', alt: ''}),
@@ -1822,12 +1832,13 @@ for (const e of document.querySelectorAll('[data-ic]')) e.insertAdjacentHTML('af
   preloadCanvasPieces();
   if (relayOK) { await refreshEngines(); if (!SHOT) await hello(); watchStockfish(); }
   buildSeat(0); buildSeat(1); buildTcPick(); buildAssist();
+  let hadSetup = false; try { hadSetup = !!localStorage.getItem('aichess.setup'); } catch (e) {}
   loadSetup(); showMode('hub');
   S.peek = $('peek').checked;
   initChat();
   await Promise.all([0, 1].filter(i => $('type' + i).value === 'llm').map(i => loadModels(i)));
   const restored = await tryRestore();
-  if (!restored && needsWelcome()) await welcome();
+  if (!restored && needsWelcome()) await welcome(hadSetup);
   if (!restored) startGame();
   if (!SHOT) pollRelay();
   const h = /settings(?:=(\w+))?/.exec(location.hash);   /* e.g. #settings=engines */

@@ -401,6 +401,14 @@ def test_module(base, zc, tmp):
     b.install()
     check("two copies: and doesn't download it again", not b.busy() and LOG == [], LOG)
     check("two copies: a third one picks from it", len(c.pick(1500, count=3)) == 3)
+    if os.name != "nt":   # Windows refuses to delete a file another copy has open
+        a.remove()
+        s = b.status()
+        check("two copies: the other one sees a remove and lets go of the file", not s["installed"] and b.db is None, s)
+        a.install()
+        sa = wait(a)
+        s = c.status()
+        check("two copies: and sees a new build", s["installed"] and s["built"] == sa["built"] and c.db is not None, (s, sa))
 
     # ---- a damaged database file: reported, and a new install replaces it
     d = Path(tmp, "f")

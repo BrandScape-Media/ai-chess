@@ -15,7 +15,10 @@ export const SET = {
   profile: {rating: 1200, games: 0},
   /* assistance while playing (chess.com-style options; can be switched before and during a game) */
   assist: {evalbar: false, feedback: false, suggest: false, threat: false, lines: false},
-  puzzles: {rating: 1200, played: 0, solved: 0, streakBest: 0, rushBest: 0},
+  /* puzzles (puzzles.js): daily.done is ''|'clean'|'solved'|'shown', hist the days solved; tally and themes[t] are [played, firstTry, ratingSum] */
+  puzzles: {rating: 1200, played: 0, solved: 0, streakBest: 0, rushBest: 0, rushCombo: 0,
+    daily: {date: '', id: '', done: '', last: '', streak: 0, best: 0, hist: [], recent: [], scored: ''},
+    tally: [0, 0, 0], themes: {}, battle: {played: 0, won: 0, lost: 0, drawn: 0, best: 0, pick: 0}},
   /* the AI model that explains moves in the game review (empty: the model you played, if any) */
   coach: {provider: '', model: '', think: 'none'},
 };

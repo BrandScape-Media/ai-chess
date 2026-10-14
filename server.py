@@ -31,7 +31,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from puzzledb import PuzzleDB
 from uci import Engines
 
-VERSION = "1.3.1"
+VERSION = "1.3.2"
 FROZEN = getattr(sys, "frozen", False)
 APP_DIR = Path(sys.executable if FROZEN else __file__).resolve().parent
 BUNDLE = Path(getattr(sys, "_MEIPASS", APP_DIR))
@@ -515,6 +515,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, {"games": history(data)})
         elif path == "/api/practice":
             self.send(200, {"items": practice(data)})
+        elif path == "/api/tournaments":
+            self.send(200, {"tournaments": tournaments(data)})
         elif path == "/api/move" and CFG["agent"]:
             self.relay_move(data)
         else:
@@ -594,6 +596,30 @@ def history(data):
         if changed:
             save_json(data_path("history.json"), games)
         return games
+
+
+tournaments_lock = threading.Lock()
+
+
+def tournaments(data):
+    """Tournaments (data/tournaments.json, newest last, at most 60): {"save": t} adds or replaces one by id,
+    {"remove": id} deletes one, {} lists them. The page owns the logic; the server only keeps them."""
+    with tournaments_lock:
+        items = load_json(data_path("tournaments.json"), [])
+        if not isinstance(items, list):
+            items = []
+        changed = False
+        if isinstance(data.get("save"), dict) and data["save"].get("id"):
+            t = data["save"]
+            items = [x for x in items if x.get("id") != t["id"]] + [t]
+            items = items[-60:]
+            changed = True
+        elif data.get("remove"):
+            items = [x for x in items if x.get("id") != data["remove"]]
+            changed = True
+        if changed:
+            save_json(data_path("tournaments.json"), items)
+        return items
 
 
 practice_lock = threading.Lock()

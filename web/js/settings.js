@@ -22,6 +22,10 @@ export const SET = {
     tally: [0, 0, 0], themes: {}, battle: {played: 0, won: 0, lost: 0, drawn: 0, best: 0, pick: 0}},
   /* the AI model that explains moves in the game review (empty: the model you played, if any) */
   coach: {provider: '', model: '', think: 'none'},
+  /* weekly league (league-core.js); null until the first rated game */
+  league: null,
+  /* tournaments: your choices in the "new tournament" form */
+  tourney: {format: 'swiss', count: 8, spread: 'close', tc: '180+2', speed: 'normal', minutes: 10, scoring: 'points', you: true, llm: false, historic: false},
 };
 export const onSettings = {changed: null};   // app.js: refresh seat menus etc.
 
@@ -40,6 +44,8 @@ export async function loadSettings() {
     if (s.profile && s.profile.rating) SET.profile = s.profile;
     if (s.assist) Object.assign(SET.assist, s.assist);
     if (s.puzzles) Object.assign(SET.puzzles, s.puzzles);
+    if (s.league && typeof s.league === 'object') SET.league = s.league;
+    if (s.tourney) Object.assign(SET.tourney, s.tourney);
     if (s.coach) Object.assign(SET.coach, s.coach);
     SET._loaded = true;   /* the server answered (an empty answer is a first start) */
   } catch (e) { console.warn('settings', e); }
@@ -51,7 +57,7 @@ export function saveSettings(now) {
   const go = async () => {
     try {
       const body = {appearance: SET.appearance, chat: SET.chat, personalities: SET.personalities, defaultPersonality: SET.defaultPersonality,
-        modelPersonality: SET.modelPersonality, profile: SET.profile, assist: SET.assist, puzzles: SET.puzzles, coach: SET.coach, providers: SET.providers.map(p => ({id: p.id, base: p.base, name: p.name, kind: p.kind, custom: p.custom, key: p._key || '', clearKey: p._clear}))};
+        modelPersonality: SET.modelPersonality, profile: SET.profile, assist: SET.assist, puzzles: SET.puzzles, coach: SET.coach, league: SET.league, tourney: SET.tourney, providers: SET.providers.map(p => ({id: p.id, base: p.base, name: p.name, kind: p.kind, custom: p.custom, key: p._key || '', clearKey: p._clear}))};
       const s = await api('/api/settings', body);
       SET.providers = s.providers;
       if (onSettings.changed) onSettings.changed();

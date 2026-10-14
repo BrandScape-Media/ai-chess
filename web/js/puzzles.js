@@ -24,8 +24,8 @@ const P = () => prefs();
 const MODES = {
   rated: {name: 'Puzzles', art: 'avatars/mode-puzzles.webp', sub: () => `Rated ${P().rating}. Puzzles at your level`},
   streak: {name: 'Puzzle Streak', art: 'avatars/streak.webp', sub: () => `One mistake ends it. Best ${P().streakBest || 0}`},
-  rush: {name: 'Puzzle Rush', art: 'avatars/builtin.webp', sub: () => `${mins(RUSH_MS)} minutes, 3 strikes, combos add time. Best ${P().rushBest || 0}`},
-  battle: {name: 'Puzzle Battle', art: 'avatars/mode-bots.webp', sub: () => { const B = P().battle; return `Race a bot for ${mins(BATTLE_MS)} minutes.` + (B.played ? ` Won ${B.won} of ${B.played}` : ' Same puzzles, most solved wins'); }},
+  rush: {name: 'Puzzle Rush', art: 'avatars/pz-rush.webp', sub: () => `${mins(RUSH_MS)} minutes, 3 strikes, combos add time. Best ${P().rushBest || 0}`},
+  battle: {name: 'Puzzle Battle', art: 'avatars/pz-bot.webp', sub: () => { const B = P().battle; return `Race a bot for ${mins(BATTLE_MS)} minutes.` + (B.played ? ` Won ${B.won} of ${B.played}` : ' Same puzzles, most solved wins'); }},
   mistakes: {name: 'Your mistakes', art: 'avatars/coach.webp', sub: () => practice == null ? 'Positions from your own games' : practice.length
     ? `${practice.length} ${practice.length === 1 ? 'position' : 'positions'} from your games` : 'Your game reviews fill this up'},
   daily: {name: 'Daily puzzle', list: false},
@@ -513,7 +513,7 @@ function renderHome(box) {
   const dash = K.themeDash(p.themes, p.tally);
   const tsub = dash.weak.length ? `Needs work: ${dash.weak.slice(0, 2).map(x => K.themeName(x.t)).join(', ')}` : 'Forks, pins, mates: see where you are strong and practise the rest';
   box.append(el('button', {type: 'button', class: 'mode pzthemesbtn', onclick: () => { view = 'themes'; renderPanel(); }},
-    el('span', {class: 'pztile', html: ICONS['chart-bar'] || ''}), el('span', {}, el('b', {}, 'Themes'), el('small', {}, tsub)), el('span', {class: 'ic', html: ICONS['caret-right']})));
+    el('img', {class: 'pzart', src: 'avatars/pz-themes.webp', alt: ''}), el('span', {}, el('b', {}, 'Themes'), el('small', {}, tsub)), el('span', {class: 'ic', html: ICONS['caret-right']})));
   box.append(el('div', {id: 'pzDb'}));
   box.append(el('p', {class: 'hint pzfoot'}, `${list ? list.length.toLocaleString('en') : 'About 3,000'} puzzles come with the game, from the lichess puzzle database (CC0), from beginner to master.`));
   paintDb();
@@ -535,7 +535,7 @@ function dailyCard() {
     btns = [el('button', {type: 'button', title: 'Play it again, without stats', onclick: () => startRun('daily', {replay: true})}, 'Play again')];
   }
   return el('div', {class: 'pzdaily' + (done ? ' done' : '')},
-    el('div', {class: 'pzdhead'}, el('span', {class: 'pztile sm', html: ICONS[done ? 'calendar-check-fill' : 'calendar-check'] || ''}),
+    el('div', {class: 'pzdhead'}, el('img', {class: 'pzart sm', src: 'avatars/pz-daily.webp', alt: ''}),
       el('span', {class: 'pzdt'}, el('b', {}, 'Daily puzzle'), el('small', {}, new Date().toLocaleDateString('en-GB', {weekday: 'long', day: 'numeric', month: 'long'}))),
       el('span', {class: 'pzflame' + (streak ? ' on' : ''), title: `Days in a row. Best ${D.best || 0}`}, el('span', {class: 'ic', html: ICONS['flame-fill']}), el('b', {}, String(streak)), el('small', {}, streak === 1 ? 'day' : 'days'))),
     days,
@@ -551,7 +551,7 @@ function paintDb() {
   if (!db) return;   /* not in this version (or not known yet): just the bundled list */
   const job = db.job, running = job && job.state === 'running';
   const card = el('div', {class: 'pzdb'}), add = (...k) => card.append(...k.filter(Boolean));
-  const top = (title, sub) => el('div', {class: 'pzdbhead'}, el('span', {class: 'pztile sm', html: ICONS.database || ''}), el('span', {class: 'pzdt'}, el('b', {}, title), sub ? el('small', {}, sub) : null));
+  const top = (title, sub) => el('div', {class: 'pzdbhead'}, el('img', {class: 'pzart sm', src: 'avatars/pz-db.webp', alt: ''}), el('span', {class: 'pzdt'}, el('b', {}, title), sub ? el('small', {}, sub) : null));
   const act = async (path, label) => {
     try { setDb(await api(path, {})); } catch (e) { toast(`Could not ${label}: ${e.message}`); }
     paintDb();
@@ -743,7 +743,7 @@ function raceCard(R) {
     el('span', {class: 'row2'}, el('span', {class: 'trail', role: 'img', 'aria-label': 'No results yet'}),
       who === 'Bot' ? el('span', {class: 'think', title: 'The bot working on its puzzle'}, el('i', {id: 'botThink'})) : null));
   const card = el('div', {class: 'pzrace'}, el('div', {class: 'racehead'}, el('small', {}, 'Time left'), el('b', {id: R.over ? null : 'pzTime', class: 'rclock'}, K.fmtClock(R.over ? R.left : R.end ? R.end - performance.now() : BATTLE_MS))),
-    lane('You', 'You', P().rating, 'avatars/human.webp'), lane('Bot', R.bot.name, R.bot.rating, 'avatars/builtin.webp'));
+    lane('You', 'You', P().rating, 'avatars/human.webp'), lane('Bot', R.bot.name, R.bot.rating, 'avatars/pz-bot.webp'));
   return card;
 }
 const dot = ok => el('i', {class: ok ? 'ok' : 'no', html: ok ? '' : ICONS.x});
@@ -784,7 +784,7 @@ function renderSetup(box, R) {
   const opts = el('div', {class: 'pzbots', role: 'radiogroup', 'aria-label': 'Your opponent'});
   const paint = () => { for (const b of opts.children) { const on = +b.dataset.d === sel; b.classList.toggle('on', on); b.setAttribute('aria-checked', on); } };
   for (const b of bots) opts.append(el('button', {type: 'button', class: 'pzbot', role: 'radio', 'data-d': b.d, onclick: () => { sel = b.d; paint(); }},
-    el('img', {src: 'avatars/builtin.webp', alt: ''}), el('span', {class: 'who'}, el('b', {}, 'Puzzle bot'), el('small', {}, LABEL[b.d])), el('span', {class: 'r'}, String(b.rating))));
+    el('img', {src: 'avatars/pz-bot.webp', alt: ''}), el('span', {class: 'who'}, el('b', {}, 'Puzzle bot'), el('small', {}, LABEL[b.d])), el('span', {class: 'r'}, String(b.rating))));
   paint();
   box.append(opts);
   if (B.played) box.append(el('p', {class: 'pzrec'}, `Played ${B.played} · won ${B.won} · lost ${B.lost}` + (B.drawn ? ` · drawn ${B.drawn}` : '') + ` · best score ${B.best}`));

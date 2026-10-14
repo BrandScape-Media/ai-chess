@@ -61,7 +61,7 @@ export function applyAppearance(a) {
   if (isImageSet(set)) {
     for (const c of ['w', 'b']) for (const l of LETTER.slice(1)) {
       const url = set === 'custom' ? custom[c + l] : `pieces/${set}/${c}${l}.svg`;
-      if (url) css += `.pc.${c}${l},.ghost.${c}${l},.caps i.${c}${l},.fig.${c}${l}{background-image:url("${url}")}\n`;
+      if (url) css += `.pc.${c}${l},.ghost.${c}${l},.caps i.${c}${l},.fig.${c}${l},.mpc.${c}${l}{background-image:url("${url}")}\n`;
     }
   }
   document.getElementById('pieceCss').textContent = css;

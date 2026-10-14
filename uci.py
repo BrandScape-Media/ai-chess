@@ -557,7 +557,10 @@ class Engines:
         if variant not in e.get("variants", ["chess"]):
             raise ValueError(f"{e['name']} does not play {variant}")
         for attempt in range(2):
-            p = self.proc(e, weights, "analysis" if req.get("slot") == "analysis" else None)
+            # slots: "analysis" (eval bar, review) and "t1"/"t2" (background tournament games) each get their own copy
+            slot = req.get("slot") if req.get("slot") in ("analysis", "t1", "t2") else None
+            background = slot in ("t1", "t2")
+            p = self.proc(e, weights, slot)
             try:
                 with p.lock:
                     opts = p.info.get("options", {})
@@ -565,10 +568,10 @@ class Engines:
                         p.setoption("UCI_Variant", variant)
                     if "UCI_Chess960" in opts:
                         p.setoption("UCI_Chess960", bool(req.get("chess960")))
-                    if "Threads" in opts and e["kind"] in ("elo", "time"):
-                        p.setoption("Threads", req.get("threads") or max(1, min(4, (os.cpu_count() or 2) // 2)))
+                    if "Threads" in opts and e["kind"] in ("elo", "time"):   # background games stay light: one thread each
+                        p.setoption("Threads", 1 if background else req.get("threads") or max(1, min(4, (os.cpu_count() or 2) // 2)))
                     if "Hash" in opts and e["kind"] in ("elo", "time"):
-                        p.setoption("Hash", 128)
+                        p.setoption("Hash", 32 if background else 128)
                     if "OwnBook" in opts and req.get("slot") == "analysis":
                         p.setoption("OwnBook", False)   # book moves come without a score
                     elo = req.get("elo")

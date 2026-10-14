@@ -8,6 +8,7 @@ import {tierById, tierFor} from './levels.js';
 import {askEngine, askLLM, cancelThinking, resolveIllegal, arrowGeom, sqXY, ARROW_COL, bestMoveHint} from './players.js';
 import {ICONS, icon} from './icons.js';
 import {BOTS} from './historic.js';
+import {initCompete, render as renderCompete, tourneyDone, leagueGame} from './compete.js';
 import {initPuzzles, puzzleMove, renderPanel as renderPuzzles} from './puzzles.js';
 import {analyze, threat, classify, winPct, fmtEval, CLASSES} from './analysis.js';
 import {initChat, assignPersonas, onGameStart, onMove, onGameOver, onTakeback, say, sysMsg, chatVisible, restoreChat, resetChat, showTab, activeTab} from './chat.js';
@@ -382,6 +383,11 @@ function finish(over) {
     saveSettings();
   }
   recordGame(over);
+  if (hum.length === 1 && over.result !== '*' && S.moves.length >= 2 && !S.replay && hooks.leagueGame) {   /* weekly league points */
+    const me = hum[0], score = over.result === '1/2-1/2' ? .5 : (over.result === '1-0') === (me === 0) ? 1 : 0;
+    S.leagueGain = hooks.leagueGame({score, me: SET.profile?.rating || 1200, opp: S.seats[me ^ 1].rating || 1500, tourney: !!S.tourney});
+  }
+  if (S.tourney && hooks.tourneyDone) hooks.tourneyDone(S.tourney, over, S.moves.map(m => C.uci(m, false)));
   if (humanSide() >= 0 && S.moves.length >= 4 && !S.replay) startReview(S.gameId);   /* Game Review: starts right away, the card fills in */
   onGameOver(over);
 }
@@ -509,7 +515,7 @@ function replayGame(g, {quiet = false} = {}) {
   S.variant = g.variant | 0; S.c960 = !!g.c960; S.startFen = g.startFen || C.START_FEN; S.startName = g.startName || ''; S.chaos = false;
   S.pos = pos; S.startPly = (() => { const q = new C.Pos(S.startFen, S.variant, S.c960); return (q.full - 1) * 2 + q.turn; })();
   S.moves = g.movesRaw.slice(); S.sans = sans; S.lastMove = S.moves[S.moves.length - 1];
-  S.setupDirty = false; S.fb = new Map(); S.explore = null; S.pz = null; S.pzRun = null; S.retry = null; S.review = null;
+  S.setupDirty = false; S.fb = new Map(); S.explore = null; S.pz = null; S.pzRun = null; S.retry = null; S.review = null; S.tourney = null;
   S.over = {result: g.result, reason: g.reason}; S.resultClosed = true; S.resultDelta = g.delta || null; S.replay = g.id; S.gameKey = g.id;
   S.times = Array.isArray(g.times) ? g.times : [];
   S.clockAt = Array.isArray(g.clockAt) && g.clockAt.length === S.moves.length + 1 ? g.clockAt : [];
@@ -595,8 +601,11 @@ function swapSeats() { const a = readSeat(0), b = readSeat(1); writeSeat(0, b); 
 /* ================= game flow ================= */
 const rand960 = () => Math.floor(Math.random() * 960);
 const newKey = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-function startGame() {
-  const variant = +$('variant').value, st = $('start').value;
+/* opts.tourney = {tid, gid, white, black, tc}: a tournament game. Its players come from the tournament, not from the
+   setup, and the setup stays as it is for your next normal game */
+function startGame(opts) {
+  const T = opts && opts.tourney ? opts.tourney : null;
+  const variant = T ? 0 : +$('variant').value, st = T ? 'std' : $('start').value;
   let fen = C.START_FEN, c960 = false, name = '';
   if (st === '960') { const n = rand960(); fen = C.fen960(n, n, 'KQkq'); c960 = true; name = 'Chess960 #' + n; }
   else if (st === 'trans') { fen = C.fen960(rand960(), rand960(), '-'); name = 'Transcendental'; }
@@ -606,17 +615,17 @@ function startGame() {
     catch (e) { toast('Bad FEN: ' + e.message); return; }
     name = 'Custom start';
   }
-  if ($('rnd').checked && Math.random() < .5) swapSeats();
-  const seats = [0, 1].map(i => seatFrom(readSeat(i)));
+  if (!T && $('rnd').checked && Math.random() < .5) swapSeats();
+  const seats = T ? [T.white, T.black].map(seatFrom) : [0, 1].map(i => seatFrom(readSeat(i)));
   for (const i of [0, 1]) {
     const P = seats[i];
     if (P.type === 'llm' && !P.model) { toast(`No model chosen for ${SIDE[i]}: the built-in engine plays instead`); Object.assign(P, {type: 'engine', engine: 'builtin', level: STR().level}); }
   }
   S.gameId++; cancelThinking();
   S.pz = null; S.pzRun = null; S.pzBoard = false; setupForNext = false;
-  S.gameKey = newKey(); S.replay = null; S.setupDirty = false;
-  for (const P of seats) rate(P, true);
-  const tc = timeControl();
+  S.gameKey = newKey(); S.replay = null; S.setupDirty = !!T; S.tourney = T ? {tid: T.tid, gid: T.gid} : null; S.leagueGain = null;
+  for (const P of seats) T && P.rating ? null : rate(P, true);
+  const tc = T ? T.tc : timeControl();
   S.clock = tc ? {...tc, ms: [tc.base, tc.base], llmFree: $('tcLLM').checked} : null;
   S.times = []; S.clockAt = [S.clock ? S.clock.ms.slice() : null]; S.turnMs = 0; S.tickT = performance.now();
   S.resultClosed = false; S.resultDelta = null;
@@ -628,7 +637,7 @@ function startGame() {
   cancelPremove(); clearSel();
   S.flipped = seats[1].type === 'human' && seats[0].type !== 'human';
   assignPersonas(); onGameStart();
-  saveSetup();
+  if (!T) saveSetup();
   afterMove();
 }
 function checkOver() {
@@ -892,7 +901,7 @@ function render() {
   const bub = $('bubble');
   if (S.sayBy === -3) { if (S.fbShown !== curKey()) { bub.hidden = true; bub.className = ''; S.say = ''; S.sayBy = -1; } }   /* move feedback */
   else if (S.say && (S.sayBy >= 0 || S.sayBy === -2)) { bub.className = ''; bub.hidden = false; bub.innerHTML = ''; bub.append(el('b', {}, (S.sayBy === -2 ? 'Hint' : seatName(S.sayBy)) + ': '), S.say); } else bub.hidden = true;
-  $('bUndo').disabled = !S.moves.length || !!S.replay || !!S.pz || !!S.pzBoard;
+  $('bUndo').disabled = !S.moves.length || !!S.replay || !!S.pz || !!S.pzBoard || !!(S.tourney && !S.over);   /* tournament games: no takebacks */
   $('bResign').hidden = !!S.pz || !!S.pzBoard;   /* also once a puzzle run ends: the board keeps it, but there is no game */
   const hc = humanCount();
   label($('bResign'), 'flag', hc ? 'Resign' : 'Stop');
@@ -901,7 +910,7 @@ function render() {
   label($('bPause'), S.paused ? 'play' : 'pause', S.paused ? 'Resume' : 'Pause');
   const vsComputer = S.seats.some(P => P.type !== 'human') && hc > 0;
   $('bUndo').hidden = vsComputer && !$('allowUndo').checked;
-  $('bHint').hidden = !$('allowHints').checked || !!S.over || !!S.pzBoard || !hc || S.viewPly != null || S.seats[S.pos.turn].type !== 'human';
+  $('bHint').hidden = !$('allowHints').checked || !!S.over || !!S.pzBoard || !!S.tourney || !hc || S.viewPly != null || S.seats[S.pos.turn].type !== 'human';
   chatVisible();
   renderHint();
   renderResult();
@@ -1417,14 +1426,16 @@ function renderResult() {
   const rating = d ? el('div', {class: 'rnum'}, el('b', {}, String(d.rating), el('span', {class: d.delta >= 0 ? 'up' : 'down'}, (d.delta >= 0 ? ' +' : ' ') + d.delta)), el('small', {}, 'Rating')) : null;
   const card = el('div', {class: 'card' + (won ? ' won' : '')}, close,
     el('div', {class: 'head'}, el('h2', {}, title), el('p', {}, reason)),
-    rating || rv ? el('div', {class: 'rrow'}, rating, rv ? el('div', {class: 'rnum racc'}) : null) : null,
+    rating || rv ? el('div', {class: 'rrow'}, rating, rv ? el('div', {class: 'rnum racc'}) : null,
+      S.leagueGain ? el('div', {class: 'rnum rleague', title: 'Points for your weekly league'}, el('b', {}, '+' + S.leagueGain), el('small', {}, 'League')) : null) : null,
     rv ? el('div', {class: 'coach'}, el('img', {src: 'avatars/coach.webp', alt: ''}), el('p', {class: 'say'}, coachLine(won, w < 0, S.review))) : null,
     rv ? el('div', {class: 'rstats'}) : null,
     el('div', {class: 'btns'},
       rv ? el('button', {class: 'primary', html: icon('star-fill') + '<span>Game review</span>', onclick: () => openReview()}) : null,
       el('div', {class: 'two'},
         el('button', {onclick: () => { S.resultClosed = true; showTab('new'); render(); }}, 'New game'),
-        el('button', {class: rv ? '' : 'primary', onclick: () => startGame()}, 'Rematch'))));
+        S.tourney ? el('button', {class: rv ? '' : 'primary', onclick: () => { S.resultClosed = true; render(); showTab('compete'); }}, 'Tournament')
+          : el('button', {class: rv ? '' : 'primary', onclick: () => startGame()}, 'Rematch'))));
   box.append(card);
   box.hidden = false;
   renderReviewStats();
@@ -1596,7 +1607,7 @@ function relayState() {
     over: S.over, fullmove: p.full, inCheck: p.inCheck(), checks: S.variant === C.V_3CHECK ? p.checks.slice() : undefined,
     moves: S.moves.map(m => C.uci(m, S.c960)), movesRaw: S.moves.slice(), san: S.sans, lastSan: S.sans.length ? S.sans[S.sans.length - 1] : null,
     legal: lu, board: ascii(p), clock: S.clock ? {base: S.clock.base, inc: S.clock.inc, ms: S.clock.ms, llmFree: !!S.clock.llmFree} : null,
-    times: S.times, clockAt: S.clockAt, setupDirty: !!S.setupDirty,
+    times: S.times, clockAt: S.clockAt, setupDirty: !!S.setupDirty, tourney: S.tourney || null,
     chatLog: (S.chatLog || []).slice(-100), shapes: {arrows: S.arrows, circles: S.circles},
   };
   if (S.config.agent) {
@@ -1630,11 +1641,11 @@ async function tryRestore() {
     S.lastOn = new Map();
     for (const m of d.movesRaw) { remember(pos); sans.push(pos.san(m)); pos.make(m); }
     /* the setup is the restored game's, unless it was already changed for the next game (a level picked mid-game or during puzzles, a colour) */
-    const forNext = !!d.setupDirty || setupForNext; setupForNext = false;
+    const forNext = !!d.setupDirty || setupForNext || !!d.tourney; setupForNext = false;
     if (!forNext) { for (const i of [0, 1]) writeSeat(i, d.seats[i]); $('variant').value = variant; $('chaos').checked = !!d.chaos; }
     seatVis(0); seatVis(1);
     S.gameId++; cancelThinking(); cancelPremove(); S.pzBoard = false;
-    S.gameKey = d.gameKey || newKey(); S.replay = null; S.setupDirty = forNext; S.fb = new Map(); S.an = null; S.explore = null; S.pz = null; S.pzRun = null;
+    S.gameKey = d.gameKey || newKey(); S.replay = null; S.setupDirty = forNext; S.tourney = d.tourney || null; S.fb = new Map(); S.an = null; S.explore = null; S.pz = null; S.pzRun = null;
     S.seats = d.seats.map(seatFrom).map(P => rate(P));
     S.clock = d.clock ? {...d.clock, ms: d.clock.ms.slice()} : null;
     S.times = Array.isArray(d.times) ? d.times.slice(0, d.movesRaw.length) : [];
@@ -1746,7 +1757,7 @@ onSettings.changed = () => {
 initPuzzles({
   board(fen) {
     S.gameId++; cancelThinking(); cancelPremove();
-    S.pzBoard = true; resetChat();   /* the puzzle board: no chat, never saved as your game */
+    S.pzBoard = true; S.tourney = null; resetChat();   /* the puzzle board: no chat, never saved as your game */
     const pos = new C.Pos(fen, 0, false);
     S.gameKey = newKey(); S.replay = null; S.setupDirty = false; S.explore = null; S.review = null; S.retry = null;
     S.variant = 0; S.c960 = false; S.startFen = fen; S.startName = 'Puzzle'; S.chaos = false; S.clock = null;
@@ -1822,7 +1833,8 @@ async function watchStockfish() {
 }
 
 /* ================= boot ================= */
-Object.assign(hooks, {play, render, afterMove, schedule, sync: () => syncRelay(), history: renderHistory, newTab: () => showMode('hub'), puzzles: () => renderPuzzles(), review: () => renderReviewTab(), chatChanged: saveEndChat, applyLevel});
+Object.assign(hooks, {play, render, afterMove, schedule, sync: () => syncRelay(), history: renderHistory, newTab: () => showMode('hub'), compete: () => renderCompete(), tourneyDone, leagueGame, puzzles: () => renderPuzzles(), review: () => renderReviewTab(), chatChanged: saveEndChat, applyLevel});
+initCompete({startGame, showTab, gameOn, rate, readSeat, paintAvatar, replayGame: g => replayGame(g), BUILTIN_ELO});
 initReview({goView, curPly, render, showTab, activeTab, tick, clearSel, exploreMove, humanSide, winPly, paintAvatar});
 for (const e of document.querySelectorAll('[data-ic]')) e.insertAdjacentHTML('afterbegin', icon(e.dataset.ic));
 (async () => {

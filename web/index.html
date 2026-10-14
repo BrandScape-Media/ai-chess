@@ -8,6 +8,7 @@
 <link rel="icon" href="logo-64.png" type="image/png">
 <link rel="preload" href="fonts/SchibstedGrotesk-Variable.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="puzzles.css">
 <style id="pieceCss"></style>
 </head>
 <body>
@@ -25,9 +26,9 @@
 
   <main class="stage">
     <div class="player" id="stripTop">
-      <div class="avatar" id="avTop"></div>
+      <div class="avatar" id="avTop" role="button" tabindex="0"></div>
       <div class="pinfo">
-        <div class="pline"><span class="name" id="nameTop"></span><span class="rating" id="ratingTop"></span><button class="lvl" id="lvlTop" hidden></button><span class="flagbadge" id="badgeTop"></span></div>
+        <div class="pline"><span class="name" id="nameTop"></span><span class="rating" id="ratingTop"></span><span class="flagbadge" id="badgeTop"></span></div>
         <div class="pline sub"><span class="caps" id="capsTop"></span><span class="adv" id="advTop"></span></div>
       </div>
       <div class="clock" id="clockTop" hidden></div>
@@ -38,9 +39,9 @@
       <div id="result" hidden></div>
     </div>
     <div class="player" id="stripBot">
-      <div class="avatar" id="avBot"></div>
+      <div class="avatar" id="avBot" role="button" tabindex="0"></div>
       <div class="pinfo">
-        <div class="pline"><span class="name" id="nameBot"></span><span class="rating" id="ratingBot"></span><button class="lvl" id="lvlBot" hidden></button><span class="flagbadge" id="badgeBot"></span></div>
+        <div class="pline"><span class="name" id="nameBot"></span><span class="rating" id="ratingBot"></span><span class="flagbadge" id="badgeBot"></span></div>
         <div class="pline sub"><span class="caps" id="capsBot"></span><span class="adv" id="advBot"></span></div>
       </div>
       <div class="clock" id="clockBot" hidden></div>
@@ -176,6 +177,7 @@
 <div id="optsPop" class="pop" hidden role="dialog" aria-label="Game options"></div>
 <div id="promo" hidden><div class="box" id="promoBox"></div></div>
 <dialog id="settings"></dialog>
+<dialog id="welcome" aria-label="Your level"></dialog>
 <div id="toast" role="status"></div>
 <script type="module" src="js/app.js"></script>
 </body>

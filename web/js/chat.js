@@ -16,7 +16,7 @@ export function initChat() {
 }
 /* side panel tabs: play (moves + controls), new (game setup), chat */
 export function showTab(t) {
-  if (t === 'chat' && !S.chatOn) t = 'play';
+  if (t === 'chat' && !chatShown()) t = 'play';
   if (t === 'new' && tabNow !== 'new' && hooks.newTab) hooks.newTab();   /* coming from elsewhere: start at the Play hub */
   tabNow = t;
   for (const b of document.querySelectorAll('[data-tab]')) b.classList.toggle('on', b.dataset.tab === t);
@@ -28,28 +28,41 @@ export function showTab(t) {
   if (t === 'play') { const mv = $('moves'); mv.scrollTop = mv.scrollHeight; }
 }
 export const activeTab = () => tabNow;
+/* the chat belongs to a game: hidden on the puzzle board, read-only when replaying a game from the history */
+const chatShown = () => S.chatOn && !S.pzBoard;
 export function chatVisible() {
-  for (const b of document.querySelectorAll('[data-tab="chat"]')) b.hidden = !S.chatOn;
-  if (!S.chatOn && tabNow === 'chat') showTab('play');
+  for (const b of document.querySelectorAll('[data-tab="chat"]')) b.hidden = !chatShown();
+  $('chatForm').hidden = !!S.replay;
+  if (!chatShown() && tabNow === 'chat') showTab('play');
 }
 
-function add(from, text, cls = '') {
+function add(from, text, cls = '', ply = S.moves.length) {
   if (!S.chatOn) return;
-  S.chatLog.push({from, text, ply: S.moves.length});
+  S.chatLog.push({from, text, ply});
   const log = $('chatLog');
   const name = from === 'you' ? (S.seats.filter(P => P.type === 'human').length === 2 ? 'Players' : 'You') : from === 'sys' ? '' : seatName(from);
   const m = el('div', {class: 'msg ' + (from === 'you' ? 'me ' : '') + (from === 'sys' ? 'sys' : '') + cls}, name ? el('b', {}, name + ': ') : null, text);
   log.append(m);
   log.scrollTop = log.scrollHeight;
-  if (tabNow !== 'chat' && from !== 'you') { unread++; $('chatBadge').textContent = unread; }
+  if (tabNow !== 'chat' && from !== 'you' && from !== 'sys') { unread++; $('chatBadge').textContent = unread; }
   if (hooks.sync) hooks.sync();
+  if (hooks.chatChanged) hooks.chatChanged();
+}
+/* a remark that arrives a moment later: it is dropped if the game has changed by then (a rematch, a replay, a puzzle) */
+function later(ms, from, text) {
+  const gid = S.gameId;
+  setTimeout(() => { if (gid === S.gameId) add(from, text); }, ms);
 }
 export function say(side, text) { if (text) add(side, text); }
-/* after a reload: put the saved chat back */
-export function restoreChat(list) {
+/* an empty chat: a new game, a replay, the puzzle board */
+export function resetChat() {
   S.chatLog = []; $('chatLog').innerHTML = ''; unread = 0; $('chatBadge').textContent = '';
   S.bigMoment = null; S.remarks = [{n: 0, last: -99}, {n: 0, last: -99}];
-  for (const c of list) add(c.from, c.text);
+}
+/* after a reload, or replaying a game from the history: put its chat back */
+export function restoreChat(list) {
+  resetChat();
+  for (const c of list) add(c.from, c.text, '', c.ply ?? S.moves.length);
   unread = 0; $('chatBadge').textContent = '';
 }
 export function sysMsg(text) { add('sys', text); }
@@ -96,13 +109,12 @@ function ctx(i) {
 /* ---------- game events ---------- */
 /* like real players: hello at the start, gg at the end, the odd reaction in between, silence the rest of the time */
 export function onGameStart() {
-  S.chatLog = []; S.bigMoment = null; S.remarks = [{n: 0, last: -99}, {n: 0, last: -99}];
-  $('chatLog').innerHTML = ''; unread = 0; $('chatBadge').textContent = '';
+  resetChat();
   for (let i = 0; i < 2; i++) {
     const P = S.seats[i];
     if (P?.type === 'engine' && SET.chat.engineTalk !== false) {
       const t = Math.random() < .8 && eventLine(botStyle(P), 'start');
-      if (t) setTimeout(() => add(i, t), 600 + i * 900);
+      if (t) later(600 + i * 900, i, t);
     } else if (P?.type === 'llm' && Math.random() < .8) greetLLM(P, i);
   }
 }
@@ -141,7 +153,7 @@ export function onMove({mover, m, captured, check, free, prevEval}) {
     const line = eventLine(st, ev, vars);
     if (!line) continue;
     R.n++; R.last = S.moves.length;
-    setTimeout(() => add(i, line), 400 + Math.random() * 900);
+    later(400 + Math.random() * 900, i, line);
   }
 }
 export function onTakeback() {
@@ -150,7 +162,7 @@ export function onTakeback() {
     const P = S.seats[i];
     if (P?.type !== 'engine') continue;
     const t = eventLine(botStyle(P), 'takeback');
-    if (t) setTimeout(() => add(i, t), 500);
+    if (t) later(500, i, t);
   }
 }
 export function onGameOver(over) {
@@ -159,7 +171,7 @@ export function onGameOver(over) {
     if (!P || !isAI(P)) continue;
     const res = over.result === '1/2-1/2' ? 'draw' : over.result === '*' ? null : ((over.result === '1-0') === (i === 0) ? 'win' : 'loss');
     if (!res) continue;
-    if (P.type === 'engine') { const t = eventLine(botStyle(P), res, {}, true); if (t) setTimeout(() => add(i, t), 700 + i * 700); }
+    if (P.type === 'engine') { const t = eventLine(botStyle(P), res, {}, true); if (t) later(700 + i * 700, i, t); }
     else if (P.type === 'llm' && S.chatOn && Math.random() < .9) {
       const gid = S.gameId;
       llmTalk(P, i, [...S.chatLog.slice(-6), {from: 'sys', text: `The game just ended: ${res === 'draw' ? 'a draw' : res === 'win' ? 'you won' : 'you lost'} by ${over.reason}. Most players just type "gg" (maybe "gg wp", or a few words in character). A sore loser might say nothing.`}])
@@ -170,6 +182,7 @@ export function onGameOver(over) {
 
 /* ---------- the player writes ---------- */
 async function userSays(text) {
+  if (S.replay || S.pzBoard) return;   /* a replay's chat is a record; the puzzle board has none */
   add('you', text);
   const gid = S.gameId;
   for (let i = 0; i < 2; i++) {
@@ -185,7 +198,7 @@ async function userSays(text) {
       try {
         const t = await llmTalk(P, i, S.chatLog);
         if (gid === S.gameId && t) add(i, t);
-      } catch (e) { add('sys', `${seatName(i)} could not answer (${e.message})`); }
+      } catch (e) { if (gid === S.gameId) add('sys', `${seatName(i)} could not answer (${e.message})`); }
       typing.remove();
     }
   }

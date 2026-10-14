@@ -4,6 +4,7 @@ import {ICONS} from './icons.js';
 import {S, hooks} from './state.js';
 import {BOARD_THEMES, PIECE_SETS, applyAppearance, isImageSet} from './theme.js';
 import {DEFAULT_PERSONALITIES, BOT_STYLES, OLD_PROMPTS} from './personas.js';
+import {TIERS, tierById, tierFor} from './levels.js';
 
 export const SET = {
   appearance: {board: 'brown', custom: ['#f0d9b5', '#b58863'], pieces: 'cburnett', coords: true, dots: true, animate: true, sound: true, customPieces: {}},
@@ -15,7 +16,10 @@ export const SET = {
   profile: {rating: 1200, games: 0},
   /* assistance while playing (chess.com-style options; can be switched before and during a game) */
   assist: {evalbar: false, feedback: false, suggest: false, threat: false, lines: false},
-  puzzles: {rating: 1200, played: 0, solved: 0, streakBest: 0, rushBest: 0},
+  /* puzzles (puzzles.js): daily.done is ''|'clean'|'solved'|'shown', hist the days solved; tally and themes[t] are [played, firstTry, ratingSum] */
+  puzzles: {rating: 1200, played: 0, solved: 0, streakBest: 0, rushBest: 0, rushCombo: 0,
+    daily: {date: '', id: '', done: '', last: '', streak: 0, best: 0, hist: [], recent: [], scored: ''},
+    tally: [0, 0, 0], themes: {}, battle: {played: 0, won: 0, lost: 0, drawn: 0, best: 0, pick: 0}},
   /* the AI model that explains moves in the game review (empty: the model you played, if any) */
   coach: {provider: '', model: '', think: 'none'},
 };
@@ -37,6 +41,7 @@ export async function loadSettings() {
     if (s.assist) Object.assign(SET.assist, s.assist);
     if (s.puzzles) Object.assign(SET.puzzles, s.puzzles);
     if (s.coach) Object.assign(SET.coach, s.coach);
+    SET._loaded = true;   /* the server answered (an empty answer is a first start) */
   } catch (e) { console.warn('settings', e); }
   applyAppearance(SET.appearance);
 }
@@ -57,7 +62,7 @@ export function saveSettings(now) {
 }
 
 /* ================= dialog ================= */
-const TABS = [['look', 'Appearance'], ['ai', 'AI providers'], ['engines', 'Chess engines'], ['chat', 'Chat & personalities'], ['about', 'About']];
+const TABS = [['you', 'You'], ['look', 'Appearance'], ['ai', 'AI providers'], ['engines', 'Chess engines'], ['chat', 'Chat & personalities'], ['about', 'About']];
 let tab = 'look';
 export function openSettings(which) {
   const d = $('settings');
@@ -68,7 +73,7 @@ export function openSettings(which) {
   nav.append(el('span', {class: 'sp'}), el('button', {onclick: () => d.close()}, 'Close'));
   const sec = el('section');
   d.append(el('div', {class: 'dlg'}, nav, sec));
-  ({look: lookTab, ai: aiTab, engines: enginesTab, chat: chatTab, about: aboutTab})[tab](sec);
+  ({you: youTab, look: lookTab, ai: aiTab, engines: enginesTab, chat: chatTab, about: aboutTab})[tab](sec);
   if (!d.open) d.showModal();
 }
 $('settings').addEventListener('close', () => { clearInterval(pollT); hooks.render && hooks.render(); });
@@ -79,6 +84,38 @@ function toggle(name, get, set, tip) {
   const i = el('input', {type: 'checkbox', class: 'switch', 'aria-label': name}); i.checked = !!get();
   i.onchange = () => { set(i.checked); saveSettings(); };
   return el('label', {class: 'swl', title: tip || ''}, el('span', {}, name), i);
+}
+
+/* ---------- you: your level and ratings ---------- */
+/* the five levels as cards (the first-start dialog uses the same ones) */
+export function levelCards(cur, onPick) {
+  const box = el('div', {class: 'tiers', role: 'radiogroup', 'aria-label': 'Your level'});
+  TIERS.forEach((t, i) => {
+    const b = el('button', {type: 'button', class: 'tier' + (t.id === cur ? ' on' : ''), role: 'radio', 'aria-checked': String(t.id === cur), onclick: () => {
+      for (const x of box.children) { x.classList.remove('on'); x.setAttribute('aria-checked', 'false'); }
+      b.classList.add('on'); b.setAttribute('aria-checked', 'true'); onPick(t);
+    }},
+    el('span', {class: 'lvbars', 'aria-hidden': 'true'}, ...TIERS.map((_, k) => el('i', {class: k <= i ? 'on' : ''}))),
+    el('span', {class: 'tt'}, el('b', {}, t.name), el('small', {}, t.sub)),
+    el('span', {class: 'tr', title: 'Starting rating'}, String(t.rating)));
+    box.append(b);
+  });
+  return box;
+}
+function youTab(sec) {
+  const pr = SET.profile || {rating: 1200, games: 0}, pz = SET.puzzles || {};
+  const cur = tierById(pr.level) || tierFor(pr.rating || 1200);
+  sec.append(el('h3', {}, 'You'),
+    el('div', {class: 'youstats'},
+      el('div', {}, el('b', {}, String(pr.rating || 1200)), el('small', {}, `Game rating · ${pr.games || 0} ${pr.games === 1 ? 'game' : 'games'}`)),
+      el('div', {}, el('b', {}, String(pz.rating || 1200)), el('small', {}, `Puzzle rating · ${pz.played || 0} played`))));
+  sec.append(group('you-level', 'Your level', cur.name, [
+    el('p', {class: 'hint'}, 'Sets how strong your opponents are by default: the built-in engine, Stockfish, Maia and the AI you face first. Changing it later keeps your rating unless you ask to reset it.'),
+    levelCards(cur.id, t => {
+      const reset = !(pr.games > 0) || confirm(`Also set your rating to ${t.rating}? It is ${pr.rating} now, after ${pr.games} ${pr.games === 1 ? 'game' : 'games'}.`);
+      if (hooks.applyLevel) hooks.applyLevel(t, {rating: reset});
+      openSettings('you');
+    })]));
 }
 
 /* ---------- appearance ---------- */
@@ -214,7 +251,7 @@ function coachGroup() {
     el('div', {class: 'grid2'}, el('label', {}, 'Provider'), prov, el('label', {}, 'Model'), el('span', {}, model, list), el('label', {}, 'Thinking'), think), status)]);
 }
 /* collapsible group of cards; remembers which ones are open */
-const openGroups = new Set(['local', 'look-board', 'eng-installed', 'chat-defaults']);
+const openGroups = new Set(['local', 'look-board', 'eng-installed', 'chat-defaults', 'you-level']);
 function group(key, title, sub, kids) {
   const d = el('details', {class: 'grp'}, el('summary', {}, el('span', {class: 'chev', html: ICONS['caret-down']}), el('b', {}, title), el('small', {}, sub)), el('div', {class: 'grpbody'}, ...kids));
   d.open = openGroups.has(key);

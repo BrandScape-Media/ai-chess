@@ -87,6 +87,7 @@ function rebuild(V) {
 /* saved with the game in the history: the engine's answer for every position */
 function pack(V) {
   return {v: 1, depth: V.deep.state === 'done' ? V.deep.depth : 0, engine: V.deep.engine || V.res.find(r => r)?.by || '', date: Date.now(),
+    acc: V.R ? V.R.acc.map(a => a == null ? null : Math.round(a * 10) / 10) : null, me: V.me, book: V.open.book,   /* for the history list */
     evals: V.res.map((r, k) => r ? [r.white ?? null, r.mate ?? null, r.best ? posOf(V.G, k).toUci(r.best) : '', (r.pv || []).slice(0, 8).join(' ')] : null)};
 }
 function restore(V, s) {
@@ -100,6 +101,23 @@ function restore(V, s) {
   } catch (e) { return false; }
   Object.assign(V.deep, {state: s.depth ? 'done' : 'none', done: V.total, depth: s.depth || 0, engine: s.engine || ''});
   return true;
+}
+/* a history game's saved review with its accuracy: newer reviews carry it, older ones get it worked out once from the saved
+   evaluations (the same way the Review tab does it, opening book included). null when the game has no review. */
+export async function historyReview(g) {
+  const s = g.review;
+  if (!s || s.v !== 1) return null;
+  if (Array.isArray(s.acc)) return s;
+  try {
+    const G = {startFen: g.startFen || C.START_FEN, variant: g.variant | 0, c960: !!g.c960, moves: g.movesRaw || [], sans: []};
+    const p = new C.Pos(G.startFen, G.variant, G.c960);
+    for (const m of G.moves) { G.sans.push(p.san(m)); p.make(m); }
+    const V = {G, res: [], deep: {}, total: G.moves.length + 1};
+    if (!restore(V, s)) return null;
+    const open = openingOf(G, await openings()), R = reviewOf(G, V.res, open.book);
+    const humans = (g.players || []).filter(q => q.type === 'human').length;
+    return {...s, acc: R.acc.map(a => a == null ? null : Math.round(a * 10) / 10), me: humans === 1 ? g.players.findIndex(q => q.type === 'human') : -1, book: open.book};
+  } catch (e) { return null; }
 }
 function save(V) {
   if (!relayOK || !V.id || V.G.moves.length < 2) return;

@@ -28,9 +28,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
+from puzzledb import PuzzleDB
 from uci import Engines
 
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 FROZEN = getattr(sys, "frozen", False)
 APP_DIR = Path(sys.executable if FROZEN else __file__).resolve().parent
 BUNDLE = Path(getattr(sys, "_MEIPASS", APP_DIR))
@@ -70,6 +71,7 @@ settings_lock = threading.Lock()
 quirks = {}          # (provider, model) -> request params that provider rejected
 CFG = {"agent": None, "lan": False, "port": 8800}   # agent: name of the hidden relay player (local.json)
 engines = None
+puzzles = None       # the optional offline lichess puzzle database (puzzledb.py)
 
 
 # ---------------------------------------------------------------- storage
@@ -443,6 +445,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, {"move": move, "inactive": not mine()})
         elif u.path == "/api/engines":
             self.send(200, engines.listing())
+        elif u.path == "/api/puzzles":
+            self.send(200, puzzles.status())
         elif u.path == "/api/health":
             self.send(200, {"ok": True, "app": "ai-chess"})
         else:
@@ -498,6 +502,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send(200, engines.listing())
         elif path == "/api/engines/browse":
             self.send(200, {"path": browse_file() if self.client_address[0] in ("127.0.0.1", "::1") else None})
+        elif path == "/api/puzzles/install":
+            puzzles.install()
+            self.send(200, puzzles.status())
+        elif path == "/api/puzzles/remove":
+            puzzles.remove()
+            self.send(200, puzzles.status())
+        elif path == "/api/puzzles/pick":
+            self.send(200, {"puzzles": puzzles.pick(data.get("rating"), data.get("window"), data.get("themes"),
+                                                    data.get("exclude"), data.get("count"))})
         elif path == "/api/history":
             self.send(200, {"games": history(data)})
         elif path == "/api/practice":
@@ -550,7 +563,8 @@ history_lock = threading.Lock()
 
 def history(data):
     """Finished games (data/history.json, newest last).
-    {"add": game} | {"update": {"id", "review"}} (the game review, saved once it is done) | {"remove": id} | {"clear": true} | {} to list."""
+    {"add": game} | {"update": {"id", "review"?, "chat"?}} (the game review once it is done; the chat, its last 60 lines)
+    | {"remove": id} | {"clear": true} | {} to list."""
     with history_lock:
         games = load_json(data_path("history.json"), [])
         if not isinstance(games, list):
@@ -564,8 +578,13 @@ def history(data):
         elif isinstance(data.get("update"), dict) and data["update"].get("id"):
             u = data["update"]
             for g in games:
-                if g.get("id") == u["id"] and isinstance(u.get("review"), dict):
+                if g.get("id") != u["id"]:
+                    continue
+                if isinstance(u.get("review"), dict):
                     g["review"] = u["review"]
+                    changed = True
+                if isinstance(u.get("chat"), list):
+                    g["chat"] = u["chat"][-60:]
                     changed = True
         elif data.get("remove"):
             games = [x for x in games if x.get("id") != data["remove"]]
@@ -656,7 +675,8 @@ def idle_watch(seconds):
         time.sleep(5)
         # a page that never connected (window closed early, browser missing) counts from the start, with 2 minutes' grace
         seen = last_seen or started + 120
-        if polls == 0 and time.time() - seen > seconds:
+        # a puzzle download or build would be cut off, so it gets to finish first
+        if polls == 0 and time.time() - seen > seconds and not puzzles.busy():
             engines.shutdown()
             os._exit(0)
 
@@ -672,7 +692,7 @@ def writable(d):
 
 
 def main():
-    global DATA, state, settings, engines
+    global DATA, state, settings, engines, puzzles
     ap = argparse.ArgumentParser(description="ai-chess: play chess against local AI models and chess engines")
     ap.add_argument("--port", type=int, default=8800)
     ap.add_argument("--lan", action="store_true", help="listen on all interfaces so other devices can play (they can use your AI providers too)")
@@ -709,6 +729,7 @@ def main():
     state = load_json(data_path(CFG["state"]), {})
     settings = load_json(data_path("settings.json"), {})
     engines = Engines(DATA)
+    puzzles = PuzzleDB(DATA)
     if not a.no_stockfish:   # first start: Stockfish from the copy inside the program, or downloaded (in the background)
         threading.Thread(target=engines.ensure_stockfish, args=(BUNDLE / "engines",), daemon=True).start()
     print(f"ai-chess {VERSION} running at {url}")

@@ -40,6 +40,9 @@ def main():
             assert "AI Chess" in page, "the page did not load"
             cfg = json.loads(get("/api/config"))
             print("version", cfg.get("version"))
+            pz = json.loads(get("/api/puzzles"))   # a build that lost zstandard couldn't unpack the puzzle download
+            print("puzzle database decoder", pz.get("zstd"))
+            assert pz.get("zstd"), "the program cannot unpack the lichess puzzle download: zstandard is missing from the build"
             while True:   # Stockfish is set up from the copy inside the program
                 r = json.loads(get("/api/engines"))
                 if any(e["id"] == "stockfish" for e in r["installed"]):

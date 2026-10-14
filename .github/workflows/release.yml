@@ -20,10 +20,13 @@ jobs:
           node-version: 22
       - run: node tests/core.test.js
       - run: node tests/review.test.js
+      - run: node tests/puzzles.test.js
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m py_compile server.py uci.py tools/bundle_stockfish.py
+      - run: pip install zstandard   # unpacks the optional lichess puzzle download (Python 3.14+ has it built in)
+      - run: python -m py_compile server.py uci.py puzzledb.py tools/bundle_stockfish.py tools/smoke_test.py
+      - run: python tests/test_puzzledb.py
 
   build:
     needs: test
@@ -46,7 +49,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install pyinstaller pillow   # pillow turns the .ico into the macOS .icns
+      - run: pip install pyinstaller pillow zstandard   # pillow turns the .ico into the macOS .icns; zstandard unpacks the puzzle download
       - name: Stockfish for this system (shipped inside the program)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -54,7 +57,7 @@ jobs:
       - name: Build
         shell: bash
         run: |
-          pyinstaller --noconfirm --onefile --windowed --name ai-chess --icon assets/ai-chess.ico --add-data "web${{ matrix.sep }}web" --add-data "bundle/stockfish${{ matrix.sep }}engines/stockfish" server.py
+          pyinstaller --noconfirm --onefile --windowed --name ai-chess --icon assets/ai-chess.ico --add-data "web${{ matrix.sep }}web" --add-data "bundle/stockfish${{ matrix.sep }}engines/stockfish" --exclude-module zstandard.backend_cffi --exclude-module zstandard._cffi server.py
           if [ -f dist/ai-chess.exe ]; then mv dist/ai-chess.exe "dist/${{ matrix.asset }}"; else mv dist/ai-chess "dist/${{ matrix.asset }}"; fi
           ls -la dist
       - name: Smoke test (starts the program, checks the page and the included Stockfish)

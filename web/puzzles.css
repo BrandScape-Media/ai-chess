@@ -10,6 +10,9 @@
 .pztile svg{width:28px;height:28px}
 .pztile.sm{width:38px;height:38px;border-radius:9px}
 .pztile.sm svg{width:20px;height:20px}
+.pzart{width:56px;height:56px;object-fit:contain;flex:none;filter:drop-shadow(0 3px 6px #0006);transition:transform .35s var(--ease)}
+.pzart.sm{width:42px;height:42px}
+.pzthemesbtn:hover .pzart{transform:rotate(-4deg) scale(1.05)}
 .pzthemesbtn .pztile{justify-self:center;transition:transform .35s var(--ease)}
 .pzthemesbtn:hover .pztile{transform:rotate(-4deg) scale(1.05)}
 .pzdt{display:flex;flex-direction:column;min-width:0}

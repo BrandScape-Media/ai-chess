@@ -21,6 +21,8 @@ jobs:
       - run: node tests/core.test.js
       - run: node tests/review.test.js
       - run: node tests/puzzles.test.js
+      - run: node tests/tourney.test.js
+      - run: node tests/league.test.js
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

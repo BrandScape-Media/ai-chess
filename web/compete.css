@@ -1,0 +1,174 @@
+/* the Compete tab: tournaments and the weekly league. Uses the tokens from app.css: bone white for what is yours or
+   lit, colour only where it means something (results, zones), radii 6 and 10. GPL-3.0-or-later */
+
+/* section switch with the trophy and your league emblem */
+.cmpseg{background:var(--panel2)}
+.panel .cmpseg button{flex-direction:row;gap:8px;padding:8px 6px;font-size:13px}
+.panel .cmpseg button img{width:24px;height:24px;object-fit:contain}
+.panel .cmpseg button span{font-size:13px!important}
+.railbtn.dot{position:relative}
+.railbtn.dot::after{content:"";position:absolute;top:7px;right:14px;width:8px;height:8px;border-radius:50%;background:var(--warn);box-shadow:0 0 0 2px var(--rail)}
+
+/* the running tournament on the home screen */
+.panel button.cmplive{box-shadow:inset 0 0 0 1px #e9e2d455}
+.cmpready{font-size:12px;font-weight:700;padding:4px 9px;border-radius:var(--r-ctl);background:var(--accent);color:var(--accent-ink);white-space:nowrap}
+.panel button.mode:disabled{opacity:.45}
+.panel button.cmppast:not(.ib):not(.railbtn){display:flex;align-items:center;gap:10px;justify-content:stretch;padding:8px 10px;background:transparent;text-align:left;border-radius:var(--r-box)}
+.panel button.cmppast:hover:not(:disabled){background:var(--panel2);filter:none}
+.cmppast img{width:34px;height:34px;object-fit:contain}
+.cmppast .grow{display:flex;flex-direction:column;min-width:0}
+.cmppast small{color:var(--muted);font-weight:400;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cmppast .place{font:600 13px/1 var(--mono);color:var(--muted);padding:5px 8px;border-radius:var(--r-ctl);background:var(--panel2)}
+.cmppast .place.top{color:var(--accent-ink);background:var(--accent)}
+
+/* a format, at the top of the new-tournament form and of a tournament */
+.cmphero{display:flex;align-items:center;gap:14px;padding:12px 14px;background:var(--panel2);border-radius:var(--r-box)}
+.cmphero img{width:58px;height:58px;object-fit:contain;filter:drop-shadow(0 4px 8px #0007);flex:none}
+.cmphero b{display:block;font-size:16px;font-weight:700;letter-spacing:-.01em}
+.cmphero small{color:var(--muted);font-size:12.5px;line-height:1.35}
+
+/* the form */
+.cmpform{display:flex;flex-direction:column;gap:10px;padding-top:4px}
+.cmprow{display:grid;grid-template-columns:86px minmax(0,1fr);align-items:center;gap:10px}
+.cmprow .l{color:var(--muted);font-size:12.5px}
+.seg.small{background:var(--panel2)}
+.panel .seg.small button{flex-direction:row;padding:7px 4px;font-size:12px}
+.panel .seg.small button span{font-size:12px}
+.cmpfieldh{display:flex;align-items:center;justify-content:space-between;padding-top:6px}
+.cmpfieldh .gh{margin:0}
+.cmpfieldh .ib{height:30px;min-width:30px;background:transparent}
+.cmpfieldh .ib:hover{background:var(--panel3)}
+.cmpfield{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.seatchip{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--r-box);background:var(--panel2);min-width:0}
+.seatchip .avatar{width:30px;height:30px;border-radius:7px}
+.seatchip .bt b{font-size:12.5px}
+.seatchip .bt small{font:500 11px/1.2 var(--mono)}
+.seatchip.me{box-shadow:inset 0 0 0 1px #e9e2d466}
+.cmpstart{position:sticky;bottom:-18px;margin:4px -14px -18px;padding:12px 14px}
+.cmpstart .primary{width:100%}
+
+/* your game */
+.cmpyou{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:var(--r-box);background:var(--panel2);flex-wrap:wrap}
+.cmpyou.ready{box-shadow:inset 0 0 0 1px var(--accent);animation:pop .3s var(--ease)}
+.cmpyou .avatar{width:42px;height:42px}
+.cmpyou .grow{display:flex;flex-direction:column;min-width:0;flex:1}
+.cmpyou b{font-size:14px;font-weight:650}
+.cmpyou small{color:var(--muted);font-size:12.5px;display:flex;align-items:center;gap:6px}
+.cmpyou .dot{width:10px;height:10px;border-radius:3px;border:1px solid #ffffff40;flex:none}
+.cmpyou .dot.w{background:#efe9de}.cmpyou .dot.b{background:#1b1916}
+.cmpyou .pairme{flex-basis:100%;padding-top:8px;border-top:1px solid var(--line);color:var(--muted)}
+
+/* the champion */
+.cmpchamp{display:grid;grid-template-columns:64px 1fr auto;align-items:center;gap:12px;padding:14px;border-radius:var(--r-box);background:var(--panel2);box-shadow:inset 0 0 0 1px #e9e2d440}
+.cmpchamp .cup{width:64px;height:64px;object-fit:contain;filter:drop-shadow(0 4px 10px #0008)}
+.cmpchamp small{display:block;color:var(--muted);font-size:12px}
+.cmpchamp b{display:block;font-size:18px;font-weight:800;letter-spacing:-.02em}
+.cmpchamp .you{display:block;font-size:12.5px;color:var(--text);margin-top:2px}
+
+/* standings */
+.cmptable{display:flex;flex-direction:column;border-radius:var(--r-box);background:var(--panel2);overflow:hidden}
+.cmptable .tr{display:grid;grid-template-columns:22px minmax(0,1fr) 50px 42px 48px;align-items:center;gap:6px;padding:7px 10px}
+.cmptable .tr+.tr{border-top:1px solid var(--line)}
+.cmptable .th{color:var(--faint);font-size:11.5px;padding-top:9px;padding-bottom:7px}
+.cmptable .rk{font:600 12.5px/1 var(--mono);color:var(--muted);text-align:center}
+.cmptable .pl{display:flex;align-items:center;gap:8px;min-width:0}
+.cmptable .pl .avatar{width:28px;height:28px;border-radius:7px}
+.cmptable .bt b{font-size:13px}
+.cmptable .bt small{font-size:11px;color:var(--muted)}
+.cmptable .fm{display:flex;gap:2px}
+.cmptable .fm i{width:8px;height:8px;border-radius:2px;background:var(--panel3)}
+.cmptable .fm .f-w{background:var(--good)}.cmptable .fm .f-d{background:#a29c92}.cmptable .fm .f-l{background:var(--warn)}.cmptable .fm .f-bye{background:var(--line2)}
+.cmptable .n{font:500 12.5px/1 var(--mono);color:var(--muted);text-align:right;display:flex;align-items:center;justify-content:flex-end;gap:3px}
+.cmptable .n.big{font-weight:600;font-size:14px;color:var(--text)}
+.cmptable .n.up{color:var(--good)}.cmptable .n.down{color:#f0a497}
+.cmptable .fire{color:#e3a04a;display:inline-grid}.cmptable .fire svg{width:13px;height:13px}
+.cmptable .tr.me{background:#e9e2d40d;box-shadow:inset 3px 0 0 var(--accent)}
+.cmptable .tr.champ .rk{color:var(--accent-ink);background:var(--accent);border-radius:5px;padding:4px 0}
+
+/* the knockout bracket: tickets in columns, one SVG of lines underneath */
+.bracket{overflow-x:auto;overflow-y:hidden;margin:0 -14px;padding:4px 14px 10px;scrollbar-width:thin}
+.bk-inner{position:relative}
+.bk-svg{position:absolute;inset:0;overflow:visible}
+.bk-line{fill:none;stroke:var(--line2);stroke-width:1.5}
+.bk-line.lit{stroke:#e9e2d4;stroke-width:2}
+.bk-round{position:absolute;top:0;font-size:11.5px;color:var(--faint);font-weight:600}
+.bk-ticket{position:absolute;display:flex;flex-direction:column;border-radius:9px;background:var(--panel2);overflow:hidden;box-shadow:0 2px 6px #0004}
+.bk-ticket.live{box-shadow:0 0 0 1px var(--accent),0 2px 6px #0004}
+.bk-row{flex:1;display:flex;align-items:center;gap:6px;padding:0 7px;min-width:0}
+.bk-row+.bk-row{border-top:1px dashed var(--line2)}
+.bk-row .avatar{width:18px;height:18px;border-radius:5px}
+.bk-name{flex:1;min-width:0;font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bk-name.tbd{color:var(--faint);font-weight:500;font-style:italic}
+.bk-seed{font:500 10px/1 var(--mono);color:var(--faint)}
+.bk-pips{display:flex;gap:2px}
+.bk-pips i{width:6px;height:6px;border-radius:50%;background:var(--line2)}
+.bk-pips .p-w{background:var(--good)}.bk-pips .p-d{background:#a29c92}.bk-pips .p-l{background:var(--warn)}
+.bk-row.out{opacity:.45}
+.bk-row.win .bk-name{color:#fff}
+.bk-row.me{background:#e9e2d40f}
+.bk-cup{position:absolute;width:86px;display:flex;flex-direction:column;align-items:center;gap:2px;text-align:center;opacity:.5}
+.bk-cup.won{opacity:1}
+.bk-cup img{width:44px;height:44px;object-fit:contain;filter:drop-shadow(0 3px 6px #0007)}
+.bk-cup small{font-size:11px;font-weight:600;color:var(--text);max-width:86px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* games playing in the background, on small boards */
+.cmpboards{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.mbcard{display:flex;flex-direction:column;gap:4px;padding:8px;border-radius:var(--r-box);background:var(--panel2)}
+.mbname{font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mbname.b{color:var(--muted)}
+.mb{display:grid;grid-template-columns:repeat(8,1fr);aspect-ratio:1;border-radius:4px;overflow:hidden}
+.ms{position:relative;background:var(--lightbg)}
+.ms.d{background:var(--darkbg)}
+.ms.last::before{content:"";position:absolute;inset:0;background:var(--lastmove)}
+.mpc{position:absolute;inset:4%;background-size:contain;background-repeat:no-repeat;background-position:center;font-style:normal;display:grid;place-items:center;font-size:9px;line-height:1}
+.mpc.img{font-size:0}
+.mpc.glyph.w{color:#fff;-webkit-text-stroke:.5px #1b1b1d}.mpc.glyph.b{color:#202023}
+
+/* every result */
+.cmpgames .grpbody{display:flex;flex-direction:column;gap:2px}
+.panel button.cmpgame:not(.ib):not(.railbtn){display:grid;grid-template-columns:minmax(0,1fr) 34px minmax(0,1fr) 62px;align-items:center;gap:6px;justify-content:stretch;padding:7px 8px;background:transparent;font-size:12.5px;font-weight:500;border-radius:var(--r-ctl)}
+.panel button.cmpgame:hover:not(:disabled){background:var(--panel3);filter:none}
+.cmpgame .gw{text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
+.cmpgame .gb{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
+.cmpgame .won{color:var(--text);font-weight:650}
+.cmpgame .gr{font:600 12px/1 var(--mono);text-align:center}
+.cmpgame small{color:var(--faint);font-size:11px;text-align:right}
+.cmpfoot{display:flex;justify-content:center;padding-top:6px}
+.panel button.quiet:not(.ib){background:transparent}
+
+/* the league */
+.lghero{display:flex;align-items:center;gap:14px;padding:14px;border-radius:var(--r-box);background:var(--panel2)}
+.lghero img{width:72px;height:72px;object-fit:contain;filter:drop-shadow(0 5px 10px #0008);flex:none}
+.lghero b{display:block;font-size:18px;font-weight:800;letter-spacing:-.02em}
+.lghero small{display:block;color:var(--muted);font-size:12.5px}
+.lgme{display:block;margin-top:4px;font-size:13px;color:var(--muted)}
+.lgme b{display:inline;font:600 15px/1 var(--mono);color:var(--text)}
+.lgladder{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;padding:2px 0}
+.lgstep{display:grid;place-items:center;padding:6px 0;border-radius:var(--r-ctl);transition:background .2s var(--ease)}
+.lgstep img{width:30px;height:30px;object-fit:contain}
+.lgstep.on{background:var(--panel3);box-shadow:inset 0 0 0 1px #e9e2d466}
+.lgstep.locked img{filter:grayscale(1) brightness(.55)}
+.lgresult{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:var(--r-box);background:var(--panel2);animation:pop .3s var(--ease)}
+.lgresult img{width:44px;height:44px;object-fit:contain}
+.lgresult.up{box-shadow:inset 3px 0 0 var(--good)}.lgresult.down{box-shadow:inset 3px 0 0 var(--warn)}
+.lgresult .grow{flex:1;display:flex;flex-direction:column}
+.lgresult small{color:var(--muted);font-size:12.5px}
+.lgresult .ib{background:transparent;min-width:30px;height:30px}
+.lgtable{display:flex;flex-direction:column;border-radius:var(--r-box);background:var(--panel2);overflow:hidden;padding:4px 0}
+.lgrow{display:grid;grid-template-columns:30px 26px minmax(0,1fr) 40px;align-items:center;gap:8px;padding:5px 12px}
+.lgrow .rk{font:600 12px/1 var(--mono);color:var(--faint);text-align:center}
+.lgrow .avatar{width:26px;height:26px;border-radius:6px}
+.lgrow .nm{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lgrow .pt{font:600 13px/1 var(--mono);text-align:right}
+.lgrow.up .rk{color:var(--good)}.lgrow.down .rk{color:#f0a497}
+.lgrow.me{background:#e9e2d412;box-shadow:inset 3px 0 0 var(--accent)}
+.lgrow.me .nm{font-weight:700}
+.lgline{display:flex;align-items:center;gap:8px;padding:4px 12px;font-size:11px;font-weight:600}
+.lgline::before,.lgline::after{content:"";flex:1;height:1px}
+.lgline.up{color:var(--good)}.lgline.up::before,.lgline.up::after{background:#8fbf7355}
+.lgline.down{color:#f0a497}.lgline.down::before,.lgline.down::after{background:#e0705f55}
+.lgnote{line-height:1.45}
+@media (prefers-reduced-motion:reduce){.cmpyou.ready,.lgresult{animation:none}}
+/* the tab body is a flex column: keep every block at its natural height (the bracket must not be squeezed) */
+#cmpBody>*{flex:none}
+.cmptable .th .n,.cmptable .th .n.big{font:600 11px/1 var(--sans);color:var(--faint)}

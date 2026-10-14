@@ -15,24 +15,85 @@ Next:
 
 Done in 1.3.1: the daily puzzle with a streak; the themes dashboard (strengths, what needs work) with Practise this theme; Storm-style combo bonus seconds in Puzzle Rush; Puzzle Battle against a bot; the optional download of the full lichess puzzle database (about 5 million puzzles, offline, SQLite, picked by rating and theme). Also in 1.3.1: the first-start level picker, the History redesign, chat that stays with its game.
 
+Done in 1.3.2: artwork for Rush, Daily, Themes, Battle's puzzle bot and the database card (Krea 2).
+
 Next:
-1. Artwork for the new modes (Rush, Daily, Themes, Battle's puzzle bot, the database card): prompts are in the 1.3.1 notes; generate them with the local image generator.
-2. Puzzle Battle against another person on the LAN.
-3. A puzzle rating graph (comes with Phase F's profile).
+1. Puzzle Battle against another person on the LAN.
+2. A puzzle rating graph (comes with Phase F's profile).
 
-## Phase D: Tournaments (1.3.2)
+## Phase D: Tournaments and Leagues (1.3.2)
 
-Engines and AI models play each other in the background, and you play your own games on the main board.
+Done in 1.3.2: the **Compete** tab.
 
-* A background match runner (engines through `/api/engine/go`, models through `/api/llm/chat`, one local model at a time), results in `data/tournaments.json`.
-* Formats, in order: round-robin / Swiss (Buchholz tie-break), knockout (winner plays winner), timed arena (most consecutive wins, streak bonus), and a "most Elo gained" event.
-* A Tournaments tab: lobby with presets, live standings or bracket, "your next game" cards, mini boards of the background games.
+* **Tournaments** run in the background while you play your own games on the main board. The match runner has two lanes, each with its own web worker for the built-in engine and its own copy of every UCI engine (slots `t1`, `t2`, one thread each), so your game and the analysis never slow down. AI models play one game at a time. Results are saved in `data/tournaments.json`; logic in `web/js/tourney-core.js` (tested), runner in `web/js/tourney-runner.js`, screens in `web/js/compete.js`.
+* Five formats: round-robin, Swiss (no rematches while avoidable, colour balance, Buchholz), knockout (seeded bracket, a drawn game is replayed with colours swapped, after three draws the higher seed goes through), arena (timed, 2/1/0 with double points after two wins in a row, or "longest streak wins"), and the rating climb (the biggest rating gain wins).
+* The field is built around your rating from what you have installed: built-in levels, engines at a set Elo, Maia, the historic bots and your AI model, if you want them.
+* Your game shows as a card with a Play button; it is played on the main board with the tournament's clock, no takebacks and no hints. Live standings or the bracket, the background games on small boards, every result replayable.
+* **Weekly league**: seven divisions (Pawn, Knight, Bishop, Rook, Queen, King, Legend) with Krea 2 emblems. Rated games against the computer earn points (win 3, 4 against someone 100 or more above you, draw 1, tournament games one more, a tournament podium 10/6/4). The top 5 of 30 move up each week, the bottom 5 move down, a week without games changes nothing. Rivals are simulated from the bot pool and are the same every time you look (`web/js/league-core.js`, tested).
 
-## Phase E: Leagues
+Next:
+1. A wider bracket view: open the bracket full width over the board.
+2. Team events (engines against AI models), and a "gauntlet": you against every engine in turn.
+3. A weekly league recap card, and league trophies on the profile (Phase F).
 
-Weekly divisions from Wood to Legends, built from your rated results against the bot pool: a score to beat every week.
+## Phase E: Variants (brainstorm, to build next)
 
-## Phase F: your account (research done, to build after D and E)
+Today: Standard, Chess960, King of the Hill, Three-check, Transcendental, any position from a FEN. Every variant should get its own picture, a rules card with a small board showing the special rule, and a prompt that explains the rules to AI models.
+
+### Who plays them
+
+* **The built-in engine** (`core.js`) learns each variant's rules: move generation, end of game, a few evaluation terms. It is the opponent that always works, and it checks every move.
+* **Fairy-Stockfish** (already in the catalog) plays almost every variant below at full strength through `UCI_Variant`. It becomes the default engine for variants; the other engines play standard chess only.
+* **AI models** get the rules in the prompt; the legal moves list matters even more here.
+
+### Tier 1: same board, same pieces, new rules (cheapest)
+
+1. **Crazyhouse**: captured pieces change sides and can be dropped back on the board. Needs a pocket next to the board and drop moves (`P@e4`).
+2. **Atomic**: a capture explodes and removes every piece around it except pawns; blow up the king to win.
+3. **Antichess** (giveaway): captures are forced and the goal is to lose all your pieces.
+4. **Horde**: White has 36 pawns and no king; Black must take them all.
+5. **Racing Kings**: no checks allowed, first king to the 8th rank wins.
+6. **Duck chess**: after every move you place the duck, a blocker nobody can capture; there is no check, you win by taking the king.
+7. **Fog of war** (dark chess): you only see the squares your pieces reach. Fun against AI models, who are already half blind.
+
+### Tier 2: new pieces on the 8 by 8 board
+
+Pieces from the chess variants wiki's list, each needing its own art:
+* **Archbishop** (bishop + knight), **Chancellor** (rook + knight), **Amazon** (queen + knight).
+* **Camel** (3,1 leaper), **Zebra** (3,2), **Wildebeest** (knight + camel), **Grasshopper** (hops over a piece and lands just behind it), **Knight-rider**, **Alfil** and **Ferz** (the old bishop and queen of shatranj), **Wazir**, **Sergeant** and **Berolina** pawns (move diagonally, capture straight).
+* Variants built on them: **Seirawan chess** (hawk and elephant enter the board from the back rank), **Almost Chess** (a chancellor instead of the queen), **Amazon chess**, **Grasshopper chess**, **Shatranj** (the medieval game), and a **Fairy mix** where each side gets random fairy pieces.
+
+### Tier 3: bigger boards and other families (most work)
+
+* **Capablanca chess** (10 by 8, archbishop and chancellor), **Grand chess** (10 by 10). `core.js` uses a 0x88 board, which fits 10 files but not 10 ranks: Grand chess needs a new board layout, and the board, arrows and pictures must handle any size.
+* **Xiangqi**, **Shogi**, **Makruk**: whole other chess families with their own boards and pieces. Fairy-Stockfish plays them; the board would need a new look per family.
+
+### Art
+
+* Every variant: a Krea 2 card picture like the hub cards, in the same sticker style.
+* Fairy pieces: drawing them in all 12 piece sets is not realistic. Plan: one **variant piece set** in a clean classic style, white and black, built from the standard silhouettes with a clear mark for the extra move (for example a knight's head on a bishop's body for the archbishop), drawn as SVG so they stay sharp; Krea 2 for first designs. A game with fairy pieces uses that set for the fairy pieces only. The wiki's own images are CC-BY-SA, so we draw our own.
+
+### Ratings and modes
+
+* A separate rating per variant (provisional for the first 5 games), shown on the variant card.
+* Variant tournaments, and a "variant of the week" in the league.
+* Puzzles for variants are out of scope (no open database).
+
+### Suggested order
+
+1. 1.4.0: Crazyhouse, Atomic, Antichess, Horde, Racing Kings (Fairy-Stockfish plus `core.js` rules), the rules cards and the art.
+2. 1.4.1: Duck chess and Fog of war (new interaction: placing the duck, hidden squares).
+3. 1.4.2: the fairy piece set, then Seirawan, Almost Chess, Amazon, Grasshopper and Shatranj.
+4. Later: Capablanca and Grand chess (board sizes), then the other families.
+
+### Open questions
+
+1. Which three variants matter most to you for 1.4.0?
+2. Should variants be rated separately from your main rating?
+3. Is Fairy-Stockfish as the only real engine for variants fine, or should the built-in engine reach a good strength in each?
+4. Fog of war: should AI models see the whole board (easier for them) or only their own fog?
+
+## Phase F: your account (research done, to build after E)
 
 A home for you as a player: who you are, how you are improving, and what happened while you were away. Everything stays on this computer, so "friends", "messages" and "notifications" become your regular opponents, your saved game chats and local events.
 
@@ -100,6 +161,14 @@ Settings > You moves into the profile, and its tab links there. New: name, pictu
 * Each AI model keeps a rating keyed by `personaKey`, updated from its games against you, instead of a random number each game.
 * Uploaded pictures are saved as files, not data URLs inside `settings.json`.
 * `GET /api/history?summary=1` returns games without evals, PGN and chat, for Stats and Opponents.
+
+### Ties to Compete (added with 1.3.2)
+
+* Tournament results on the profile: tournaments played, podiums, titles won, with the trophy art; a best placing per format.
+* League history: the division reached each week as a small emblem strip, the highest division ever, weeks promoted in a row.
+* Achievements from Compete: first tournament, first title, win a knockout without losing a game, a 5-win streak in an arena, reach each league division.
+* Notifications from Compete: your tournament game is ready, a tournament ended, the league week ended (promoted, stayed, relegated).
+* Variant ratings (Phase E) shown next to the main rating.
 
 ### Out of scope
 

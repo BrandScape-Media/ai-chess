@@ -95,6 +95,8 @@ Like the chat on chess.com: talk to the model while you play. Every computer opp
   * **Themes:** your accuracy per theme (forks, pins, mates in 2 and dozens more), your strengths and what needs work, and **Practise this theme**.
   * **Your mistakes:** positions from your own games where you went wrong.
   * **The full lichess puzzle database**, about 5 million puzzles, is an optional one-click download (about 300 MB, about 650 MB on disk) that works offline from then on.
+* **Tournaments** (the Compete tab): round-robin, Swiss, knockout with a live bracket, arena (timed, points and win streaks) and a rating climb. The field is built around your rating from the built-in levels, your installed engines, Maia, the historic bots and, if you want, your AI model. The other games run in the background on small live boards while you play yours on the main board, with the tournament's clock.
+* **Weekly league:** rated games against the computer earn league points; each week the top 5 of 30 move up a division and the bottom 5 move down, from the Pawn League to the Legend League.
 * **Assistance like on chess.com:** evaluation bar, move feedback (best, excellent, inaccuracy, mistake, blunder), suggestion and threat arrows, engine line. Switch them on before the game or from the gear during it. They use Stockfish (or another installed engine) and work offline.
 * **Ratings:** engines show realistic Elo estimates, every AI model gets a random rating for the game, and your own rating goes up and down as you win and lose.
 * **Hints** (best move from Stockfish or the built-in engine) and **takebacks**, each can be switched off.
@@ -121,9 +123,11 @@ python server.py [--port 8800] [--lan] [--no-browser] [--app | --tab] [--exit-wh
 
 ```bash
 node tests/core.test.js
+node tests/tourney.test.js
+node tests/league.test.js
 ```
 
-Move generation is checked with perft against the standard test positions (including Chess960), plus variants, unchecked moves and the engine.
+Move generation is checked with perft against the standard test positions (including Chess960), plus variants, unchecked moves and the engine. The tournament tests check pairings (no Swiss rematches, colour balance, byes), the knockout bracket, arena scoring and the rating climb; the league tests check promotion, relegation and the simulated rivals.
 
 ## Privacy and security
 

@@ -9,6 +9,7 @@
 <link rel="preload" href="fonts/SchibstedGrotesk-Variable.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="app.css">
 <link rel="stylesheet" href="puzzles.css">
+<link rel="stylesheet" href="compete.css">
 <style id="pieceCss"></style>
 </head>
 <body>
@@ -18,6 +19,7 @@
     <button class="railbtn" data-tab="play" data-ic="play"><span class="lbl">Play</span></button>
     <button class="railbtn" data-tab="new" data-ic="plus"><span class="lbl">New game</span></button>
     <button class="railbtn" data-tab="puzzles" data-ic="puzzle-piece"><span class="lbl">Puzzles</span></button>
+    <button class="railbtn" data-tab="compete" data-ic="trophy"><span class="lbl">Compete</span></button>
     <button class="railbtn" data-tab="history" data-ic="clock-counter-clockwise"><span class="lbl">History</span></button>
     <button class="railbtn" id="bSettings" data-ic="gear-six"><span class="lbl">Settings</span></button>
     <span class="grow"></span>
@@ -160,6 +162,10 @@
 
     <section class="tab puzzles" id="tab-puzzles" hidden>
       <div class="setupBody" id="pzBody"></div>
+    </section>
+
+    <section class="tab compete" id="tab-compete" hidden>
+      <div class="setupBody" id="cmpBody"></div>
     </section>
 
     <section class="tab history" id="tab-history" hidden>

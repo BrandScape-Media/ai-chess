@@ -20,10 +20,11 @@ export function showTab(t) {
   if (t === 'new' && tabNow !== 'new' && hooks.newTab) hooks.newTab();   /* coming from elsewhere: start at the Play hub */
   tabNow = t;
   for (const b of document.querySelectorAll('[data-tab]')) b.classList.toggle('on', b.dataset.tab === t);
-  for (const id of ['play', 'review', 'new', 'chat', 'history', 'puzzles']) $('tab-' + id).hidden = id !== t;
+  for (const id of ['play', 'review', 'new', 'chat', 'history', 'puzzles', 'compete']) $('tab-' + id).hidden = id !== t;
   if (t === 'history' && hooks.history) hooks.history();
   if (t === 'review' && hooks.review) hooks.review();
   if (t === 'puzzles' && hooks.puzzles) hooks.puzzles();
+  if (t === 'compete' && hooks.compete) hooks.compete();
   if (t === 'chat') { unread = 0; $('chatBadge').textContent = ''; $('chatIn').focus(); const l = $('chatLog'); l.scrollTop = l.scrollHeight; }
   if (t === 'play') { const mv = $('moves'); mv.scrollTop = mv.scrollHeight; }
 }

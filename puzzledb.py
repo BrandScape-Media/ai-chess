@@ -11,6 +11,7 @@ Unpacking the .zst needs Python 3.14+ (compression.zstd) or the zstandard packag
 GPL-3.0-or-later.
 """
 import bisect
+import contextlib
 import csv
 import errno
 import http.client
@@ -53,7 +54,9 @@ CREATE TABLE meta (k TEXT PRIMARY KEY, v);
 HEADER = "PuzzleId FEN Moves Rating RatingDeviation Popularity NbPlays Themes GameUrl OpeningTags".split()
 FIELDS = ("PuzzleId", "FEN", "Moves", "Rating", "Themes", "Popularity")   # the columns kept (GameUrl alone would be 200 MB)
 COLS = "id, fen, moves, rating, themes, themes2"
-SCAN = f"SELECT {COLS} FROM puzzles WHERE k BETWEEN ? AND ? AND themes & ? = ? AND themes2 & ? = ? LIMIT 4"
+SCAN = f"SELECT {COLS} FROM puzzles WHERE k BETWEEN ? AND ? AND themes & ? = ? AND themes2 & ? = ?"
+DONE = object()   # a scan read every match in the parts, and all of them are seen
+BUSY = "another copy of AI Chess is installing the puzzles"
 
 
 # ---------------------------------------------------------------- zstd
@@ -150,6 +153,38 @@ def drop(*paths):
             pass
 
 
+def take_lock(path):
+    """An exclusive lock on path, or None while another copy of the program holds it (two copies can share one data folder).
+    The system lets go of it if the program dies, so a crash never leaves it stuck."""
+    f = open(path, "a+b")
+    try:
+        if os.name == "nt":
+            import msvcrt
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return f
+    except OSError:
+        f.close()
+        return None
+
+
+def free_lock(f):
+    """Let go of a lock from take_lock and delete its file. Linux and macOS delete it while still holding it, so the next copy
+    makes a new file; Windows can't delete an open file, so it lets go first, and the delete fails if another copy has it open."""
+    if os.name == "nt":
+        import msvcrt
+        with contextlib.suppress(OSError):
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)   # closing alone may let go of it only a while later
+        f.close()
+    with contextlib.suppress(OSError):
+        os.unlink(f.name)
+    f.close()
+
+
 def num(x, default):
     """A whole number from the page (JSON may send 1500.4 or "1500"); junk is a ValueError, which the server answers with 400."""
     if x is None or x == "":
@@ -208,16 +243,20 @@ class PuzzleDB:
         self.path = self.dir / "lichess.sqlite"
         self.tmp = self.dir / "lichess.sqlite.tmp"
         self.zst = self.dir / "lichess_db_puzzle.csv.zst"
+        self.lockfile = self.dir / "install.lock"   # held by the copy of the program that installs or removes
         self.url = os.environ.get("AICHESS_PUZZLE_URL") or url
         self.lock = threading.Lock()   # one connection for every request thread, and the tables loaded from it
         self.stop = threading.Event()
         self.db = self.info = self.job = self.thread = self.broken = None
         self.rnd = random.Random()
-        for f in self.dir.glob("*.tmp*"):   # a build cut off when the program quit: it starts over next time
-            try:
-                f.unlink()
-            except OSError:
-                pass
+        held = None
+        with contextlib.suppress(OSError):
+            held = self.dir.exists() and take_lock(self.lockfile)
+        if held:   # no other copy is installing: a build cut off when the program quit starts over
+            for f in self.dir.glob("*.tmp*"):
+                with contextlib.suppress(OSError):
+                    f.unlink()
+            free_lock(held)
         with self.lock:
             self._open()
 
@@ -227,6 +266,7 @@ class PuzzleDB:
     # ---------- status
     def status(self):
         with self.lock:
+            self._sync()
             info = self.info
             job = dict(self.job) if self.job else None
             if not job and self.broken:
@@ -291,10 +331,18 @@ class PuzzleDB:
             self.db.close()
         self.db = self.info = None
 
+    def _sync(self):
+        """Open a database that another copy of the program built since this one looked (two can share one data folder)."""
+        if not self.db and not self.busy() and self.path.exists():
+            self._open()
+            if self.db:
+                self.job = None   # an error from before, such as another copy installing, is over
+
     # ---------- install
     def install(self):
         """Download and build in the background. Does nothing while a job runs or once the database is installed."""
         with self.lock:
+            self._sync()
             if self.db or self.busy() or (self.thread and self.thread.is_alive()):
                 return
             self.stop.clear()
@@ -308,11 +356,19 @@ class PuzzleDB:
             job.update(kw)
 
     def _install(self):
+        held = None
         try:
             if not ZSTD:
                 raise Failed("unpacking the puzzles needs Python 3.14 or newer, or the zstandard package "
                              "(pip install zstandard). The downloadable program has it built in")
             self.dir.mkdir(parents=True, exist_ok=True)
+            held = take_lock(self.lockfile)   # held to the end, so two copies never write the same files
+            if not held:
+                raise Failed(BUSY)
+            with self.lock:
+                self._open()   # another copy may have finished it just before this one took the lock
+                if self.db:
+                    return self._job(state="done", step="done")
             need, free = self.need(), self.free()
             if free < need:
                 raise Failed(f"not enough disk space: the puzzles need about {need / 1e9:.1f} GB free, "
@@ -336,10 +392,10 @@ class PuzzleDB:
         except Exception as e:   # never let a job take the server down: the page shows the reason
             self._job(state="error", step=explain(e))
         finally:
-            try:
-                drop(self.tmp)
-            except OSError:
-                pass
+            if held:
+                with contextlib.suppress(OSError):
+                    drop(self.tmp)
+                free_lock(held)
 
     def _download(self):
         for attempt in range(1, self.TRIES + 1):
@@ -478,14 +534,24 @@ class PuzzleDB:
         if t and t.is_alive():
             self.stop.set()
             t.join(20)
+            if t.is_alive():   # stuck on a slow connection: it deletes its files itself once it stops
+                raise RuntimeError("the install is still stopping. Try again in a moment")
         with self.lock:
-            self._close()
-            self.job = self.broken = None
+            held = None
             try:
+                if self.dir.exists():
+                    held = take_lock(self.lockfile)
+                    if not held:
+                        raise RuntimeError(BUSY)
+                self._close()
+                self.job = self.broken = None
                 for f in self.dir.glob("lichess*"):
                     drop(f)
             except OSError as e:
                 raise RuntimeError(f"could not delete the puzzle database: {e}") from None
+            finally:
+                if held:
+                    free_lock(held)
         try:
             self.dir.rmdir()
         except OSError:
@@ -504,6 +570,7 @@ class PuzzleDB:
         names = themes.split() if isinstance(themes, str) else [str(t) for t in themes or []]
         seen = {str(x) for x in (exclude or [])[-600:]}
         with self.lock:
+            self._sync()
             if not self.db:
                 raise RuntimeError("not installed")
             bad = [t for t in names if t not in self.bits]
@@ -530,8 +597,9 @@ class PuzzleDB:
         if rare == 0:   # a known theme that no puzzle in this file has
             return []
         rating = min(max(rating, self.R[0]), self.R[-1])   # a rating past either end starts from the nearest puzzles
-        # hole: ratings (indexes into R) already scanned without a match, so a wider window only reads the new rows around it
-        out, w, hole = [], window, None
+        # hole: ratings (indexes into R) already read in full with nothing new found, so a wider window only reads the rows
+        # around it. matched: some of those rows had the themes (all seen), so the combination is not a miss to remember
+        out, w, hole, matched = [], window, None, False
         while True:
             lo, hi = rating - w, rating + w
             full = lo <= self.R[0] and hi >= self.R[-1]
@@ -542,8 +610,8 @@ class PuzzleDB:
             if parts and (full or self._rows(parts) * rare / total >= 2 * count):
                 for _ in range(4 * count + 4):
                     p = self._one(parts, a, b, seen)
-                    if p is None:   # nothing in this window has the themes
-                        hole = (i, j)
+                    if p is None or p is DONE:   # nothing unseen in this window has the themes
+                        hole, matched = (i, j), matched or p is DONE
                         break
                     if p:
                         out.append(p)
@@ -551,7 +619,7 @@ class PuzzleDB:
                         if len(out) == count:
                             return out
             if full:
-                if names and hole == (0, len(self.R) - 1):
+                if names and hole == (0, len(self.R) - 1) and not matched:
                     self.misses.add((a, b))
                 return out
             w *= 2
@@ -572,13 +640,15 @@ class PuzzleDB:
         return self.R[m] << 20 | (x + base - (self.cum[m - 1] if m else 0)), n
 
     def _one(self, parts, a, b, seen):
-        """One puzzle not in seen; False when only seen ones turned up, None when nothing in the parts has the themes."""
+        """One puzzle not in seen. Without themes: False when it was a seen one. With themes: DONE when every match in the parts
+        is seen, None when nothing in the parts has them."""
         x, n = self._spot(parts)
         if not (a or b):
             p = self.db.execute(f"SELECT {COLS} FROM puzzles WHERE k = ?", (x,)).fetchone()
             return p if p and p[0] not in seen else False
         # scan from a random puzzle (not a random key: keys leave big gaps between ratings) to the end, then wrap around
-        # one of the next few matches, not always the first: a match right behind another would hardly ever come up
+        # one of the next few unseen matches, not always the first: a match right behind another would hardly ever come up.
+        # the cursor reads lazily, so it stops there, and reads on past seen ones: every unseen match can come up
         keys = [(self.R[i] << 20, self.R[j] << 20 | 0xFFFFF) for i, j in parts]
         found, cands = False, []
         for span in [(x, keys[n][1])] + keys[n + 1:] + keys[:n] + [(keys[n][0], x - 1)]:
@@ -586,9 +656,11 @@ class PuzzleDB:
                 found = True
                 if p[0] not in seen:
                     cands.append(p)
+                    if len(cands) >= 4:
+                        break
             if len(cands) >= 4:
                 break
-        return self.rnd.choice(cands[:4]) if cands else False if found else None
+        return self.rnd.choice(cands) if cands else DONE if found else None
 
     def _theme_names(self, a, b):
         out, m = [], a | b << 63

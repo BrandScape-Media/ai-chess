@@ -152,6 +152,16 @@ def files(d):
     return sorted(f.name for f in p.iterdir()) if p.exists() else []
 
 
+def traced(db, fn):
+    """fn's result, and the SQL it ran."""
+    calls = []
+    db.db.set_trace_callback(calls.append)
+    try:
+        return fn(), calls
+    finally:
+        db.db.set_trace_callback(None)
+
+
 # ---------------------------------------------------------------- tests
 def test_module(base, zc, tmp):
     import puzzledb
@@ -166,8 +176,9 @@ def test_module(base, zc, tmp):
     d = Path(tmp, "a")
     (d / "puzzles").mkdir(parents=True)
     (d / "puzzles" / "lichess.sqlite.tmp").write_bytes(b"left over")
+    (d / "puzzles" / "install.lock").write_bytes(b"")   # a crash leaves the file, but never the lock
     db = PuzzleDB(d, url=url)
-    check("stale .tmp removed on start", "lichess.sqlite.tmp" not in files(d), files(d))
+    check("stale .tmp and lock file removed on start", files(d) == [], files(d))
     s = db.status()
     check("status before install", (s["installed"], s["rows"], s["range"], s["themes"], s["job"]) == (False, 0, None, [], None), s)
     check("status: zstd decoder, free and need", s["zstd"] in ("stdlib", "zstandard") and s["free"] > 0 and s["need"] > 0, s)
@@ -234,7 +245,9 @@ def test_module(base, zc, tmp):
     absent = [t for t in puzzledb.SEED if t not in counts]
     check("pick: a known theme no puzzle has: empty list", absent and db.pick(1500, themes=absent[:1]) == [], absent)
     check("pick: no puzzle has both: empty list", db.pick(1500, themes=["triangleMate", "testOnlyMate"]) == [])
-    check("pick: that miss is remembered", db.pick(1500, themes=["testOnlyMate", "triangleMate"]) == [])
+    check("pick: that miss is remembered", len(db.misses) == 1, db.misses)
+    got, calls = traced(db, lambda: db.pick(1500, themes=["testOnlyMate", "triangleMate"]))
+    check("pick: a remembered miss reads nothing", got == [] and calls == [], (got, calls))
     p = db.pick(5000)
     check("pick: far outside the range widens the window", len(p) == 1 and p[0]["r"] > 2500, p)
     for bad in (["notATheme"], ["fork", "Bad-Name!"]):
@@ -252,6 +265,16 @@ def test_module(base, zc, tmp):
     rare = sorted(i for i, v in valid.items() if "testOnlyMate" in v[3].split())
     got = db.pick(1500, themes=["testOnlyMate"], exclude=rare[1:], count=5)
     check("pick: exclude leaves the only unseen puzzle", [p["id"] for p in got] == [rare[0]], (got, len(rare)))
+    # a scan reads on past seen matches: the last unseen one always turns up, even behind many seen ones
+    top = max(rare, key=lambda i: valid[i][2])
+    got = [db.pick(400, themes=["testOnlyMate"], exclude=[i for i in rare if i != top]) for _ in range(200)]
+    check("pick: the only unseen match always turns up", all([p["id"] for p in g] == [top] for g in got),
+          sum(not g for g in got))
+    got = [len(db.pick(r, themes=["testOnlyMate"], exclude=rare[:-10], count=10)) for r in range(400, 3000, 13)]
+    check("pick: exactly 10 unseen matches, count 10: all of them, every time", got.count(10) == len(got), sorted(set(got)))
+    got, calls = traced(db, lambda: db.pick(1500, themes=["testOnlyMate"], exclude=rare, count=10))
+    check("pick: every match seen: empty, read once", got == [] and len(calls) <= 3, (got, len(calls)))
+    check("pick: every match seen is not a miss", len(db.misses) == 1, db.misses)
     near = [i for i, v in valid.items() if 1450 <= v[2] <= 1550][:600]
     ok = all(p["id"] not in near for _ in range(100) for p in db.pick(1500, window=50, exclude=near, count=3))
     check("pick: excluded ids never come back", ok)
@@ -348,6 +371,37 @@ def test_module(base, zc, tmp):
     s = db.status()
     check("remove cancels a download", s["job"] is None and not db.busy() and files(d) == [], (s["job"], files(d)))
 
+    # ---- two copies of the program on one data folder (each takes the next free port)
+    d = Path(tmp, "g")
+    a, b = PuzzleDB(d, url=url), PuzzleDB(d, url=url)   # b is already running when a installs
+    CTL["slow"] = 0.1
+    a.install()
+    t0 = time.time()
+    while not (a.job and a.job["step"] == "downloading" and a.job["done"] > 0) and time.time() - t0 < 20:
+        time.sleep(0.01)
+    (d / "puzzles" / "lichess.sqlite.tmp").write_bytes(b"a's build")   # stands in for a build in progress
+    c = PuzzleDB(d, url=url)   # a third copy starts now
+    check("two copies: one starting up leaves the other's files alone", "lichess.sqlite.tmp" in files(d), files(d))
+    b.install()
+    s = wait(b)
+    check("two copies: install in the other one says why not", s["job"]["state"] == "error" and s["job"]["step"] == puzzledb.BUSY,
+          s["job"])
+    try:
+        b.remove()
+        check("two copies: remove in the other one is refused", False)
+    except RuntimeError as e:
+        check("two copies: remove in the other one is refused", str(e) == puzzledb.BUSY, e)
+    check("two copies: the first one's download goes on", a.busy() and a.job["step"] == "downloading", a.job)
+    CTL["slow"] = 0
+    s = wait(a)
+    check("two copies: the first one finishes", s["installed"] and files(d) == ["lichess.sqlite"], (s["job"], files(d)))
+    LOG.clear()
+    s = b.status()
+    check("two copies: the other one sees the database", s["installed"] and s["job"] is None and s["rows"] == len(valid2), s)
+    b.install()
+    check("two copies: and doesn't download it again", not b.busy() and LOG == [], LOG)
+    check("two copies: a third one picks from it", len(c.pick(1500, count=3)) == 3)
+
     # ---- a damaged database file: reported, and a new install replaces it
     d = Path(tmp, "f")
     (d / "puzzles").mkdir(parents=True)
@@ -414,7 +468,8 @@ def test_server(base, tmp, valid):
         code, r = call("/api/puzzles/pick", {"rating": 1500}, ctype="text/plain")
         check("POST pick: needs JSON content type", code == 403, code)
         code, r = call("/api/puzzles/pick", {"rating": 9000, "themes": ["fork", "pin"]})
-        check("POST pick: nothing near still finds some", code == 200 and isinstance(r["puzzles"], list), r)
+        ok = code == 200 and len(r["puzzles"]) >= 1 and all({"fork", "pin"} <= set(x["t"].split()) for x in r["puzzles"])
+        check("POST pick: nothing near still finds some", ok, r)
 
         # history: chat saved with a game, on its own or with the review
         call("/api/history", {"add": {"id": "g1", "result": "1-0"}})

@@ -284,9 +284,38 @@ export function llmSystem(P, side) {
   t += '\n\nAnswer with a single move in UCI notation (from-square then to-square, like e2e4 or g1f3; add the piece for a promotion, like e7e8q)' + (S.c960 ? '; to castle, move the king onto its own rook (like e1h1)' : '') + '.';
   const pz = persona(P);
   t += pz ? ' Put the move on its own line, with nothing else on that line.\n\n' + pz : ' Reply with the move only, no explanation.';
+  t += '\n\nIf your position is hopeless you may resign: answer with the single word RESIGN instead of a move. To offer a draw, give your move and add a line OFFER DRAW.';
   return t;
 }
-function boardBlock(p) { return `Position (FEN): ${p.fen()}\n\nBoard (uppercase = White, lowercase = Black):\n${ascii(p)}`; }
+/* models read a list of pieces far better than a grid of letters: "White: Kg1, Qd1, Rf1 ... pawns a2 b2" */
+const PNAME = 'PNBRQK';
+export function pieceList(p) {
+  const out = [];
+  for (const side of [0, 1]) {
+    const by = [[], [], [], [], [], [], []];
+    for (let s = 0; s < 128; s++) { if (s & 0x88) { s += 7; continue; } const q = p.b[s]; if (q && (q >> 3) === side) by[q & 7].push(C.sqName(s)); }
+    const parts = [];
+    for (const t of [6, 5, 4, 3, 2]) for (const sq of by[t]) parts.push(PNAME[t - 1] + sq);
+    if (by[1].length) parts.push('pawns ' + by[1].join(' '));
+    out.push(`${SIDE[side]}: ${parts.join(', ') || 'no pieces'}`);
+  }
+  return out.join('\n');
+}
+function boardBlock(p) {
+  const last = S.sans.length ? `Last move: ${SIDE[p.turn ^ 1]} played ${S.sans[S.sans.length - 1].replace(/\?!$/, '')}.${p.inCheck() ? ` ${SIDE[p.turn]} is in check.` : ''}\n` : '';
+  return `${last}Pieces:\n${pieceList(p)}\n\nPosition (FEN): ${p.fen()}\n\nBoard (uppercase = White, lowercase = Black, White at the bottom):\n${ascii(p)}`;
+}
+/* the model's own clock, so it knows to hurry */
+function clockLine(side) {
+  if (!timed(side)) return '';
+  const ms = S.clock.ms[side], s = Math.max(0, Math.round(ms / 1000)), t = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  return `Your clock: ${t} left${S.clock.inc ? ` (+${S.clock.inc / 1000}s per move)` : ''}.` + (ms < 60000 ? ' You are short of time: answer at once, no long thinking.' : ' Keep your thinking short, or you can lose on time.');
+}
+/* how long the model may take for this move before a quick move is played for it (null: no limit) */
+function timeBudget(side) {
+  if (!timed(side)) return null;
+  return Math.max(3000, Math.min(120000, S.clock.ms[side] / 14 + S.clock.inc * .8));
+}
 export const PIC_LINE = 'The attached picture shows the current board, White at the bottom.';
 function chatSince(side, sincePly) {
   if (!S.chatOn) return '';
@@ -310,6 +339,8 @@ export function turnText(P, side, legal, first, withImg, chatOk = {}) {
   const ct = chatSince(side, P.sees === 'board' ? Math.max(0, S.moves.length - 2) : P.lastPly + 1); if (ct) L.push(ct);
   const at = arrowsText(side); if (at) L.push(at);
   if (withImg) L.push(PIC_LINE);
+  const cl = clockLine(side); if (cl) L.push(cl);
+  if (S.drawOffer && S.drawOffer.by !== side) L.push('Your opponent offers a draw. To accept, answer with the single word ACCEPT instead of a move; otherwise just play your move.');
   if (P.hint) L.push('Legal moves (UCI): ' + legal.map(m => p.toUci(m)).join(' '));
   if (chatOk.ok) L.push('You may chat this turn: something big just happened. Only if your character would react.');
   L.push((S.moves.length || !first || P.sees === 'board' ? 'Your move.' : 'Make the first move.') + ' Give the move in UCI notation.');
@@ -344,12 +375,17 @@ export async function askLLM(P) {
     return out;
   };
   const free = rulesOff(P);
-  let chosen = 0, bad = 0, slip = 0, say = '';
+  let chosen = 0, bad = 0, slip = 0, say = '', offer = false;
   const t0 = performance.now();
+  /* on the clock: less thinking when time is short, and a quick move if the model takes too long */
+  const budget = timeBudget(side), left = timed(side) ? S.clock.ms[side] : Infinity;
+  const think = left < 60000 ? 'none' : left < 240000 && ['medium', 'xhigh'].includes(P.think) ? 'low' : undefined;
+  let timedOut = false;
+  const timer = budget ? setTimeout(() => { timedOut = true; ctl.abort(); }, budget) : 0;
   try {
     for (let a = 0; a < 4 && !chosen; a++) {
       let txt;
-      try { txt = await llmRequest(P, build(), ctl.signal); }
+      try { txt = await llmRequest(P, build(), ctl.signal, think ? {think} : {}); }
       catch (e) {
         if (e.name !== 'AbortError' && userMsg.img && !P.noImage && IMG_ERR.test(e.message)) {
           P.noImage = true; toast(shortModel(P) + ' does not take pictures: text only from now on');
@@ -360,7 +396,17 @@ export async function askLLM(P) {
       if (stale(gid, len)) return;
       const sp = splitSay(stripThink(txt));
       if (sp.say) say = sp.say;
-      const r = parseLLMMove(sp.rest, legal);
+      /* resigning and draws: words on their own, not part of a move */
+      if (/^\s*RESIGN\b/im.test(sp.rest) && !parseLLMMove(sp.rest, legal).ok && S.moves.length >= 16) {
+        clearTimeout(timer); S.thinking = false; S.llmCtl = null; S.info = '';
+        if (hooks.aiResign) hooks.aiResign(side, say); return;
+      }
+      if (/^\s*ACCEPT\b/im.test(sp.rest) && S.drawOffer && S.drawOffer.by !== side && !parseLLMMove(sp.rest, legal).ok) {
+        clearTimeout(timer); S.thinking = false; S.llmCtl = null; S.info = '';
+        if (hooks.aiAcceptDraw) hooks.aiAcceptDraw(side, say); return;
+      }
+      if (/OFFER\s+DRAW/i.test(sp.rest)) offer = true;
+      const r = parseLLMMove(sp.rest.replace(/OFFER\s+DRAW/ig, ''), legal);
       local.push({role: 'assistant', content: stripThink(txt).trim().slice(-400) || '?', ply: len});
       if (r.ok) { chosen = r.move; break; }
       bad++;
@@ -372,15 +418,25 @@ export async function askLLM(P) {
       }
       if (r.cand) P.illegal++;
       S.say = `Tried ${r.cand || '(nothing readable)'}, illegal!`; S.sayBy = side; hooks.render();
-      local.push({role: 'user', content: `Illegal move. ${whyIllegal(r.cand)} Try again and give one legal move in UCI notation.`, ply: len});
+      /* the retry comes with the list of legal moves: the model then only has to pick one */
+      local.push({role: 'user', content: `Illegal move. ${whyIllegal(r.cand)} Here are all your legal moves (UCI): ${legal.map(m => S.pos.toUci(m)).join(' ')}. Answer with one of them.`, ply: len});
     }
   } catch (e) {
+    clearTimeout(timer);
+    if (timedOut && !stale(gid, len)) {   /* out of thinking time: a quick engine move keeps it from losing on time */
+      S.thinking = false; S.llmCtl = null;
+      const r = C.search(S.pos, {...C.LEVELS[2], time: 400});
+      S.say = 'Took too long to think: a quick move was played for it.'; S.sayBy = side; S.info = '';
+      if (chat) P.note = `(You ran out of thinking time, so ${S.pos.san(r.move).replace(/\?!$/, '')} was played for you. Answer faster.)`;
+      hooks.play(r.move); return;
+    }
     if (e.name === 'AbortError' || stale(gid, len)) return;
     S.say = 'Model error: ' + e.message; S.sayBy = side;
     S.thinking = false; S.llmCtl = null; S.paused = true; S.info = '';
     toast('Model error: paused. Fix the provider or switch the player, then Resume.');
     hooks.render(); return;
   }
+  clearTimeout(timer);
   if (stale(gid, len)) return;
   const secs = ((performance.now() - t0) / 1000).toFixed(1) + 's';
   if (!humanCount()) {
@@ -403,6 +459,7 @@ export async function askLLM(P) {
   } else if (bad) S.say = `${bad} illegal attempt${bad > 1 ? 's' : ''} first, then found a real move.`;
   if (S.paused) { hooks.render(); return; }
   hooks.play(chosen);
+  if (offer && hooks.aiOfferDraw) hooks.aiOfferDraw(side);
 }
 
 /* chat reply in character (no move talk); history = [{from, text}] */

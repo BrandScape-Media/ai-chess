@@ -31,7 +31,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from puzzledb import PuzzleDB
 from uci import Engines
 
-VERSION = "1.3.2"
+VERSION = "1.4.0"
 FROZEN = getattr(sys, "frozen", False)
 APP_DIR = Path(sys.executable if FROZEN else __file__).resolve().parent
 BUNDLE = Path(getattr(sys, "_MEIPASS", APP_DIR))
@@ -398,7 +398,7 @@ class Handler(BaseHTTPRequestHandler):
         f = (WEB / rel).resolve()
         if WEB.resolve() not in f.parents and f != WEB.resolve() or not f.is_file():
             return self.send(404, {"error": "not found"})
-        ctype = {".webp": "image/webp", ".woff2": "font/woff2"}.get(f.suffix) or mimetypes.guess_type(f.name)[0] or "application/octet-stream"
+        ctype = {".webp": "image/webp", ".woff2": "font/woff2", ".wasm": "application/wasm", ".js": "text/javascript"}.get(f.suffix) or mimetypes.guess_type(f.name)[0] or "application/octet-stream"
         if f.suffix in (".js", ".mjs"):
             ctype = "text/javascript"
         if ctype.startswith("text/") or f.suffix == ".svg":

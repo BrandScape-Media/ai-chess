@@ -202,7 +202,7 @@ export function coachText(k, lead = true) {
   const swing = before && after ? ` ${who} winning chances went from ${pct(mine(before, pl.mover))} to ${pct(mine(after, pl.mover))}.` : '';
   if (k === app.winPly()) return lead ? `${pl.played} wins the game.` : `The game ends by ${S.over?.reason || 'this move'}.`;
   switch (pl.cls) {
-    case 'illegal': return `${pl.played} broke the rules: that piece can't move like that.`;
+    case 'illegal': return `${pl.played} broke the rules. ${pl.why || "That piece can't move like that."}`;
     case 'book': return lead ? `${pl.played} is a book move${V.open.ply >= k && V.open.name ? `, part of the ${V.open.name}` : ''}.` : V.open.name ? `Opening theory: the ${V.open.name}.` : 'Opening theory.';
     case 'brilliant': return `${pl.played}!! is brilliant: it leaves a piece to be taken, and it works.${swing}`;
     case 'great': return `${pl.played}! is a great move: the strongest answer to the opponent's slip.`;
@@ -418,7 +418,9 @@ function summary(box, V) {
     tb.append(el('span', {class: 'nm', style: `color:${c.col}`}, c.name), el('span', {class: 'n' + (a ? '' : ' z')}, String(a)), badge(k), el('span', {class: 'n' + (b ? '' : ' z')}, String(b)));
   }
   tb.append(el('span', {class: 'sep'}));
-  PHASES.forEach((name, i) => tb.append(el('span', {class: 'nm ph'}, name), el('span', {class: 'n'}, badge(R.phases[0][i], 'sm')), el('span'), el('span', {class: 'n'}, badge(R.phases[1][i], 'sm'))));
+  /* each phase: the accuracy icon and, with enough moves, a rating for how that phase was played */
+  const phr = (side, i) => R.phaseRating && R.phaseRating[side][i] ? el('small', {class: 'phr', title: `Played like a ${R.phaseRating[side][i]} player in the ${PHASES[i].toLowerCase()}`}, String(R.phaseRating[side][i])) : null;
+  PHASES.forEach((name, i) => tb.append(el('span', {class: 'nm ph'}, name), el('span', {class: 'n'}, badge(R.phases[0][i], 'sm'), phr(0, i)), el('span'), el('span', {class: 'n'}, badge(R.phases[1][i], 'sm'), phr(1, i))));
   box.append(tb);
   const n = V.me >= 0 ? myMistakes(V).length : 0;
   box.append(el('div', {class: 'rv-actions'},

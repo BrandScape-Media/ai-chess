@@ -86,3 +86,5 @@ export function preloadCanvasPieces() {
   }
 }
 export const canvasPiece = p => { const im = canvasImgs[code(p)]; return im && im.complete && im.naturalWidth ? im : null; };
+/* the image of a piece of the chosen set ("w", "Q"); sets without images (glyphs, letters) fall back to the classic set */
+export const pieceImg = (c, L) => isImageSet(current.pieces) ? (current.pieces === 'custom' ? custom[c + L] : `pieces/${current.pieces}/${c}${L}.svg`) : `pieces/cburnett/${c}${L}.svg`;

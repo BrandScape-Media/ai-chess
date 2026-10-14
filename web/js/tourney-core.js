@@ -33,7 +33,8 @@ export function createTournament(players, opts) {
   const f = opts.format;
   if (!FORMATS[f]) throw new Error('unknown format');
   const t = {id: 't' + Date.now().toString(36), v: 1, format: f, name: opts.name || FORMATS[f].name, created: opts.now ?? Date.now(),
-    status: 'live', round: 1, rounds: 0, players: players.map(p => ({...p})), games: [], doneSeq: 0, tc: opts.tc || null, speed: opts.speed || 'normal'};
+    status: 'live', round: 1, rounds: 0, players: players.map(p => ({...p})), games: [], doneSeq: 0, tc: opts.tc || null, speed: opts.speed || 'normal',
+    variant: opts.variant || null};   /* null: standard chess; otherwise a variant id (variant-catalog.js) */
   const n = players.length;
   if (f === 'rr') { t.rounds = n % 2 ? n : n - 1; t.games = roundRobin(t.players); }
   else if (f === 'swiss' || f === 'climb') {

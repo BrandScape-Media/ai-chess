@@ -8,6 +8,9 @@ import * as C from './core.js';
 import {api} from './util.js';
 import {BOTS} from './historic.js';
 import {llmRequest, stripThink} from './players.js';
+import {getFF} from './ffish-load.js';
+import {byId as variantById, splitMove, sides} from './variant-catalog.js';
+import {botMove} from './variants.js';
 
 const SPEED = {quick: {ms: 120, pace: 60}, normal: {ms: 350, pace: 260}};
 const MAX_PLIES = 240;   /* a game that long is adjudicated a draw */
@@ -32,6 +35,7 @@ export class Lane {
   }
   /* play one game; onMove(state) after every move; resolves {result, reason, moves (UCI)} or null when stopped */
   async play(game, white, black, opts, onMove) {
+    if (opts.variant) return this.playVariant(game, white, black, opts, onMove);
     this.stopped = false; this.game = game.id;
     const sp = SPEED[opts.speed] || SPEED.normal, engines = opts.engines || [];
     const pos = new C.Pos(C.START_FEN, 0, false), raw = [], uci = [];
@@ -57,6 +61,58 @@ export class Lane {
     return null;
   }
   finish(r) { this.game = null; return r; }
+  /* a variant game: rules from ffish, moves from Fairy-Stockfish, the variant bot or an AI model */
+  async playVariant(game, white, black, opts, onMove) {
+    this.stopped = false; this.game = game.id;
+    const vid = opts.variant, sp = SPEED[opts.speed] || SPEED.normal, ff = await getFF();
+    const b = new ff.Board(vid), fen0 = b.fen(), moves = [];
+    const live = {id: game.id, fen: fen0, last: null, plies: 0, white, black, variant: vid};
+    onMove && onMove(live);
+    try {
+      while (!this.stopped) {
+        if (b.isGameOver(true)) {
+          const res = b.result(true), n = b.numberLegalMoves();
+          const reason = n === 0 && b.isCheck() ? 'checkmate' : res === '1/2-1/2' ? (n === 0 ? 'stalemate' : 'draw') : (variantById(vid).win || 'the variant rule');
+          return this.finish({result: res, reason, moves});
+        }
+        if (moves.length >= MAX_PLIES) return this.finish({result: '1/2-1/2', reason: 'move limit', moves});
+        const side = b.turn() ? 0 : 1, P = side ? black : white, t0 = performance.now(), legal = b.legalMoves().split(' ').filter(Boolean);
+        let u = null;
+        try { u = await this.vmove(P, vid, fen0, moves, b, legal, sp, opts.engines || [], game.id); } catch (e) { u = null; }
+        if (this.stopped) break;
+        if (!u || !legal.includes(u)) u = legal[Math.floor(Math.random() * legal.length)];
+        b.push(u); moves.push(u);
+        const s = splitMove(u);
+        Object.assign(live, {fen: b.fen(), last: s ? {from: s.from, to: s.to} : null, plies: moves.length});
+        onMove && onMove(live);
+        const wait = sp.pace - (performance.now() - t0);
+        if (wait > 0) await new Promise(r => setTimeout(r, wait));
+      }
+    } finally { b.delete(); }
+    this.game = null;
+    return null;
+  }
+  async vmove(P, vid, fen0, moves, b, legal, sp, engines, gameId) {
+    if (P.type === 'llm') {
+      const prev = llmBusy; let release; llmBusy = new Promise(r => { release = r; }); await prev;
+      try {
+        const v = variantById(vid), names = sides(vid), side = b.turn() ? 0 : 1;
+        const msgs = [{role: 'system', content: `You are playing a tournament game of ${v.name}, a chess variant, as ${names[side]}. Rules: ${v.rules} Answer with one move from the list of legal moves, exactly as written, and nothing else.`},
+          {role: 'user', content: `Position (FEN): ${b.fen()}\nBoard:\n${b.toString()}\nLegal moves: ${legal.slice(0, 300).join(' ')}\nYour move:`}];
+        this.ctl = new AbortController();
+        const txt = stripThink(await llmRequest({...P, think: 'none'}, msgs, this.ctl.signal, {maxTokens: 600, think: 'none', temperature: .4}));
+        return txt.split(/[\s`'"(),.;:!?]+/).find(t => legal.includes(t)) || null;
+      } finally { release(); }
+    }
+    if (P.type === 'vbot' || !P.engine || P.engine === 'builtin') {
+      const r = await botMove(vid, fen0, moves.slice(), P.level ?? 1, sp.ms * 2);
+      return r && r.move;
+    }
+    this.ctl = new AbortController();
+    const r = await api('/api/engine/go', {engine: P.engine, game: 'tourney-' + gameId, slot: this.slot, variant: vid, chess960: false, fen: fen0,
+      moves: moves.slice(), movetime: sp.ms, elo: P.elo || null}, this.ctl.signal);
+    return r.bestmove;
+  }
   async move(P, pos, raw, uci, sp, engines, gameId) {
     if (P.type === 'llm') return this.llmMove(P, pos);
     const id = P.engine || 'builtin';

@@ -14,6 +14,8 @@ import {analyze, threat, classify, winPct, fmtEval, CLASSES} from './analysis.js
 import {initChat, assignPersonas, onGameStart, onMove, onGameOver, onTakeback, say, sysMsg, chatVisible, restoreChat, resetChat, showTab, activeTab} from './chat.js';
 import {initReview, startReview, renderReviewTab, reviewArrows, checkRetry, reviewReady, openReview, historyReview} from './review.js';
 import {accClass} from './review-core.js';
+import {initVariants, preview as vPreview, endPreview as vEndPreview, start as vStart, pickerCards, replay as vReplay, restore as vRestore, variantEngine, vstate} from './variants.js';
+import {byId as variantById} from './variant-catalog.js';
 
 const VAL = [0, 1, 3, 3, 5, 9, 0];
 const START_COUNT = [0, 8, 2, 2, 2, 1, 1];
@@ -194,6 +196,11 @@ const VARIANTS = [
   ['fen', 'Custom position', 'Start from any position you paste (FEN).', 'list-dashes', {variant: 0, start: 'fen'}],
 ];
 let mode = 'hub';
+/* the variant picked in Play variants: one of the classic ones above (null, played on the normal board) or a
+   variant of the variant board (variants.js) */
+let fairyPick = null;
+try { fairyPick = localStorage.getItem('aichess.fairyPick') || null; } catch (e) {}
+const setFairy = vid => { fairyPick = vid; try { vid ? localStorage.setItem('aichess.fairyPick', vid) : localStorage.removeItem('aichess.fairyPick'); } catch (e) {} };
 const gameOn = () => S.pos && S.moves.length > 0 && !S.over && !S.replay;
 function showMode(m) {
   mode = MODES[m] ? m : 'hub';
@@ -214,6 +221,7 @@ function showMode(m) {
     saveSetup();
   }
   renderModeLists();
+  if (mode === 'variants' && fairyPick) vPreview(fairyPick); else vEndPreview();
   $('tab-new').querySelector('.setupBody').scrollTop = 0;
 }
 const oppSide = () => { const i = [0, 1].findIndex(k => $('type' + k).value === 'human'); return i < 0 ? 1 : i ^ 1; };
@@ -229,6 +237,7 @@ function botEntries() {
   return out;
 }
 function playsVariant(entry) {
+  if (fairyPick) return entry.eng ? (entry.eng.variants || []).includes(fairyPick) && variantById(fairyPick).engine : entry.type === 'llm' || entry.key === 'builtin';
   if (!entry.eng) return true;
   const v = VARIANT_UCI[+$('variant').value], st = $('start').value;
   return (entry.eng.variants || ['chess']).includes(v) && (st !== '960' || entry.eng.chess960);
@@ -238,25 +247,48 @@ function renderModeLists() {
   const i = oppSide(), c = readSeat(i), box = $('botList');
   const cur = c.type === 'llm' ? '__llm' : c.type === 'engine' ? (c.engine || 'builtin') : '';
   box.innerHTML = '';
-  for (const b of botEntries()) {
+  const fairy = mode === 'variants' && fairyPick;
+  for (const b0 of botEntries()) {
+    const b = fairy && b0.key === 'builtin' ? {...b0, short: 'Variant bot', name: 'Variant bot', sub: 'Easy, medium or hard: plays every variant'} : b0;
     const P = b.type === 'llm' ? {type: 'llm', model: c.model} : {type: 'engine', engine: b.engine};
     const av = el('span'); paintAvatar(av, P, 'avatar');
     const ok = mode !== 'variants' || playsVariant(b);
     const btn = el('button', {type: 'button', class: 'bot' + (cur === b.key ? ' on' : '') + (ok ? '' : ' off'), role: 'radio', 'aria-checked': cur === b.key,
-      title: b.name + ': ' + (ok ? b.sub : 'plays standard chess only; the built-in engine takes over in this variant'), onclick: () => pickOpponent(b)},
-    av, el('span', {class: 'bt'}, el('b', {}, b.short || b.name), el('small', {}, ok ? b.sub : 'Standard chess only')));
+      title: b.name + ': ' + (ok ? b.sub : fairy ? 'does not play this variant; the variant bot takes over' : 'plays standard chess only; the built-in engine takes over in this variant'), onclick: () => pickOpponent(b)},
+    av, el('span', {class: 'bt'}, el('b', {}, b.short || b.name), el('small', {}, ok ? b.sub : fairy ? 'Not this variant' : 'Standard chess only')));
     box.append(btn);
   }
   box.append(el('button', {type: 'button', class: 'bot more', title: 'Get more engines: Stockfish, Leela, Maia and more, one click', onclick: () => openSettings('engines')}, el('span', {class: 'avatar more', html: ICONS.plus}), el('span', {class: 'bt'}, el('b', {}, 'Get more'))));
   if (mode === 'variants') {
     const vb = $('varList'); vb.innerHTML = '';
-    const vcur = VARIANTS.find(v => +$('variant').value === v[4].variant && $('start').value === v[4].start)?.[0];
+    const vcur = fairyPick ? null : VARIANTS.find(v => +$('variant').value === v[4].variant && $('start').value === v[4].start)?.[0];
+    vb.append(el('h4', {class: 'vgh'}, 'On the normal board, with every aid'));
     for (const [key, name, sub, ic, set] of VARIANTS) {
       vb.append(el('button', {type: 'button', class: 'var' + (vcur === key ? ' on' : ''), role: 'radio', 'aria-checked': vcur === key, onclick: () => {
+        setFairy(null); vEndPreview();
         $('variant').value = set.variant; $('start').value = set.start; startVis(); saveSetup(); renderModeLists();
       }}, el('span', {class: 'ic', html: ICONS[ic] || ''}), el('span', {class: 'bt'}, el('b', {}, name), el('small', {}, sub))));
     }
+    vb.append(pickerCards(fairyPick, vid => { setFairy(vid); vPreview(vid); renderModeLists(); }));
+    /* Fairy-Stockfish: missing, or the small-board build that can't play the big boards */
+    const fsf = (S.engineList || []).find(e => e.catalog === 'fairy-stockfish');
+    if (fairyPick && variantById(fairyPick).engine && !variantEngine(fairyPick)) {
+      const job = S.engineCatalog?.jobs?.['fairy-stockfish'];
+      vb.append(el('p', {class: 'vnote'}, fsf ? 'Your Fairy-Stockfish is the small-board build and does not play this one. The big-board build plays every variant here.' : 'Fairy-Stockfish plays this variant at any strength. Without it the variant bot and AI models play.',
+        el('button', {type: 'button', disabled: job && job.state === 'running', onclick: async () => {
+          try { await api('/api/engines/install', {id: 'fairy-stockfish'}); toast('Installing Fairy-Stockfish'); waitEngine(); } catch (e) { toast(e.message); }
+        }}, job && job.state === 'running' ? 'Installing' : fsf ? 'Get the big-board build' : 'Install Fairy-Stockfish')));
+    }
     $('fenIn2').hidden = vcur !== 'fen'; $('fenIn2').value = $('fenIn').value;
+  }
+}
+/* poll an engine install until it ends, then refresh the lists */
+async function waitEngine() {
+  for (let i = 0; i < 240; i++) {
+    await new Promise(r => setTimeout(r, 1500));
+    const r = await refreshEngines();
+    const job = r && r.jobs && r.jobs['fairy-stockfish'];
+    if (!job || job.state !== 'running') { if (job && job.state === 'error') toast('Install failed: ' + job.step); else toast('Fairy-Stockfish is ready'); renderModeLists(); return; }
   }
 }
 function pickOpponent(b) {
@@ -502,7 +534,9 @@ async function renderHistory() {
 }
 /* open a finished game from the history in review mode (true when it opened) */
 function replayGame(g, {quiet = false} = {}) {
+  if (g.fairy) { vReplay(g); return true; }   /* a variant game: replayed on the variant board */
   if (!S.over && S.moves.length && !S.pzBoard && !confirm('Leave the current game to replay this one?')) return false;
+  if (hooks.vleave) hooks.vleave();
   let pos, sans = [];
   try {
     pos = new C.Pos(g.startFen || C.START_FEN, g.variant | 0, !!g.c960);
@@ -605,6 +639,7 @@ const newKey = () => Date.now().toString(36) + Math.random().toString(36).slice(
    setup, and the setup stays as it is for your next normal game */
 function startGame(opts) {
   const T = opts && opts.tourney ? opts.tourney : null;
+  if (hooks.vleave && !(opts && opts.boot)) hooks.vleave();   /* back to the normal board (not at start-up: a variant game may be coming back) */
   const variant = T ? 0 : +$('variant').value, st = T ? 'std' : $('start').value;
   let fen = C.START_FEN, c960 = false, name = '';
   if (st === '960') { const n = rand960(); fen = C.fen960(n, n, 'KQkq'); c960 = true; name = 'Chess960 #' + n; }
@@ -632,6 +667,7 @@ function startGame(opts) {
   S.seats = seats; S.variant = variant; S.c960 = c960; S.startFen = fen; S.startName = name; S.chaos = $('chaos').checked;
   S.pos = new C.Pos(fen, variant, c960); S.startPly = (S.pos.full - 1) * 2 + S.pos.turn;
   S.moves = []; S.sans = []; S.lastMove = 0; S.over = null; S.viewPly = null; S.say = ''; S.sayBy = -1; S.info = ''; S.paused = false;
+  S.drawOffer = null; S.offeredAt = [-99, -99];
   S.lastOn = new Map(); S.arrows = []; S.circles = []; S.anim = null; S.hint = null; S.hintsUsed = 0;
   S.fb = new Map(); S.an = null; S.threatA = null; S.explore = null; S.retry = null; S.review = null;
   cancelPremove(); clearSel();
@@ -711,7 +747,67 @@ function play(m, opts = {}) {
   if (S.pz) { S.circles = []; render(); puzzleMove(m, mover); return; }   /* puzzles check the move themselves */
   if (P.type !== 'human' && (S.arrows.length || S.circles.length)) { S.arrows = []; S.circles = []; }   /* the opponent answered: your sketch is stale */
   onMove({mover, m, captured, check: S.pos.inCheck(), free: !!(fl & C.FL_FREE), prevEval: prevEval[mover ^ 1]});
+  if (S.drawOffer && S.drawOffer.by !== mover) {   /* playing on declines a draw offer */
+    if (S.seats[S.drawOffer.by].type === 'human' && P.type !== 'human') { S.say = 'Declined your draw offer.'; S.sayBy = mover; }
+    S.drawOffer = null;
+  }
   afterMove();
+}
+
+/* ================= draws by agreement and resigning ================= */
+/* an offer stands until the other side moves; the same side can offer again four moves later */
+function offerDraw(side) {
+  if (S.over || S.pzBoard || S.replay || S.moves.length < 2) return;
+  const last = S.offeredAt?.[side] ?? -99;
+  if (S.moves.length - last < 8) { toast(`You can offer a draw again in ${Math.ceil((8 - (S.moves.length - last)) / 2)} moves`); return; }
+  (S.offeredAt || (S.offeredAt = [-99, -99]))[side] = S.moves.length;
+  S.drawOffer = {by: side, at: S.moves.length};
+  const Q = S.seats[side ^ 1];
+  if (Q.type === 'engine') engineAnswersDraw(side ^ 1);
+  else if (Q.type === 'llm' || Q.type === 'agent') toast('Draw offered: ' + seatName(side ^ 1) + ' answers on its move');
+  render();
+}
+/* an engine takes a draw when it is not better (by its own analysis) or the game has gone long and level */
+async function engineAnswersDraw(side) {
+  const gid = S.gameId, n = S.moves.length;
+  let r = null;
+  try { r = await analyze(S.pos, 500); } catch (e) {}
+  if (gid !== S.gameId || S.over || !S.drawOffer) return;
+  const cp = r ? (r.mate != null ? (r.mate > 0 ? 9999 : -9999) : r.white || 0) : 0, mine = side ? -cp : cp;
+  const accept = mine <= -80 || (mine <= 25 && n >= 40);
+  if (accept) { finish({result: '1/2-1/2', reason: 'agreement'}); S.say = 'Accepted the draw.'; S.sayBy = side; }
+  else { S.say = 'Declined the draw.'; S.sayBy = side; S.drawOffer = null; }
+  render(); syncRelay();
+}
+hooks.aiResign = (side, say) => {
+  if (S.over) return;
+  if (say && hooks.say) hooks.say(side, say);
+  finish({result: side ? '1-0' : '0-1', reason: 'resignation'}); S.say = 'Resigned.'; S.sayBy = side;
+  render(); syncRelay();
+};
+hooks.aiAcceptDraw = (side, say) => {
+  if (S.over) return;
+  if (say && hooks.say) hooks.say(side, say);
+  finish({result: '1/2-1/2', reason: 'agreement'}); S.say = 'Accepted the draw.'; S.sayBy = side;
+  render(); syncRelay();
+};
+hooks.aiOfferDraw = side => {
+  if (S.over) return;
+  S.drawOffer = {by: side, at: S.moves.length};
+  const Q = S.seats[side ^ 1];
+  if (Q.type === 'engine') engineAnswersDraw(side ^ 1);
+  render();
+};
+/* the offer card for a person: accept or decline */
+function renderOffer() {
+  const box = $('offer'), o = S.drawOffer;
+  const show = o && !S.over && S.seats[o.by ^ 1]?.type === 'human' && S.viewPly == null;
+  box.hidden = !show;
+  if (!show) return;
+  box.innerHTML = '';
+  box.append(el('span', {class: 'oq', html: icon('handshake')}), el('span', {class: 'ot'}, `${seatName(o.by)} offers a draw`),
+    el('button', {class: 'primary', onclick: () => { finish({result: '1/2-1/2', reason: 'agreement'}); render(); syncRelay(); }}, 'Accept'),
+    el('button', {onclick: () => { S.drawOffer = null; render(); }}, 'Decline'));
 }
 function canMove(color) {
   if (S.over || S.viewPly != null || S.thinking || S.inactive || (S.pzBoard && !S.pz)) return false;
@@ -913,6 +1009,9 @@ function render() {
   $('bHint').hidden = !$('allowHints').checked || !!S.over || !!S.pzBoard || !!S.tourney || !hc || S.viewPly != null || S.seats[S.pos.turn].type !== 'human';
   chatVisible();
   renderHint();
+  renderOffer();
+  $('bDraw').hidden = !hc || !!S.over || !!S.pz || !!S.pzBoard || !!S.replay || S.moves.length < 2;
+  $('bDraw').disabled = !!(S.drawOffer && S.seats[S.drawOffer.by]?.type === 'human');
   renderResult();
   renderReviewTab();
   drawClocks();
@@ -1121,6 +1220,7 @@ function avatarOf(P) {
   return ['cpu-fill', `hsl(${hue(id)} 16% 34%)`, 'avatars/custom.webp'];
 }
 function paintAvatar(av, P, cls) {
+  if (P && P.type === 'vbot') P = {type: 'engine', engine: 'builtin', level: P.level};   /* the variant bot wears the built-in engine's picture */
   const [ic, col, img] = avatarOf(P), key = (P?.type || 'human') + img + col;
   if (av.dataset.key === key) return;
   av.dataset.key = key; av.className = cls + ' ' + (P?.type || 'human');
@@ -1452,9 +1552,9 @@ function renderResult() {
   if (won && !S.replay) confetti();
 }
 /* a short burst of confetti over the board when you win (skipped with reduced motion or when switched off) */
-function confetti() {
+function confetti(where) {
   if (SET.appearance.confetti === false || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  const wrap = document.querySelector('.boardwrap'), cv = el('canvas', {class: 'confetti'});
+  const wrap = where || document.querySelector('.boardwrap'), cv = el('canvas', {class: 'confetti'});
   wrap.append(cv);
   const W = cv.width = wrap.clientWidth * devicePixelRatio, H = cv.height = wrap.clientHeight * devicePixelRatio, g = cv.getContext('2d');
   const cols = ['#e9e2d4', '#8fbf73', '#e3a04a', '#e6c650', '#d98a7a', '#8fa8c0'], s = devicePixelRatio;
@@ -1715,7 +1815,14 @@ async function copy(txt, what) {
   try { await navigator.clipboard.writeText(txt); toast(what + ' copied'); }
   catch (e) { window.prompt('Copy ' + what + ':', txt); }
 }
-$('bNew').onclick = () => { startGame(); showTab('play'); };
+$('bNew').onclick = () => {
+  if (mode === 'variants' && fairyPick) {   /* a variant on the variant board */
+    if ($('rnd').checked && Math.random() < .5) swapSeats();
+    vStart({vid: fairyPick, seats: [readSeat(0), readSeat(1)], tc: timeControl(), llmFree: $('tcLLM').checked});
+    showTab('play'); return;
+  }
+  startGame(); showTab('play');
+};
 $('tcLLM').onchange = saveSetup;
 $('bSwap').onclick = () => {
   swapSeats(); saveSetup();
@@ -1726,6 +1833,7 @@ $('bSwap').onclick = () => {
 $('bUndo').onclick = undo;
 $('bFlip').onclick = () => { S.flipped = !S.flipped; render(); };
 $('bResign').onclick = resign;
+$('bDraw').onclick = () => offerDraw(humanSide() >= 0 ? humanSide() : S.pos.turn);
 $('bPause').onclick = togglePause;
 $('bHint').onclick = hint;
 for (const id of ['allowHints', 'allowUndo']) $(id).onchange = () => { saveSetup(); render(); };
@@ -1742,6 +1850,7 @@ $('peek').onchange = () => { S.peek = $('peek').checked; saveSetup(); syncRelay(
 $('chaos').onchange = () => { S.chaos = $('chaos').checked; seatVis(0); seatVis(1); saveSetup(); render(); syncRelay(); };
 window.addEventListener('keydown', e => {
   if (['SELECT', 'INPUT', 'TEXTAREA'].includes(e.target.tagName) || $('settings').open || $('welcome').open) return;
+  if (hooks.vkey && hooks.vkey(e)) { e.preventDefault(); return; }   /* a variant game is on the stage */
   if (e.key === 'ArrowLeft') { if (!exploreBack()) goView(curPly() - 1); e.preventDefault(); }
   else if (e.key === 'ArrowRight') { goView(curPly() + 1); e.preventDefault(); }
   else if (e.key === 'Home') { goView(0); e.preventDefault(); }
@@ -1766,6 +1875,7 @@ onSettings.changed = () => {
 /* a puzzle is a small game on the main board: you against the "Puzzle" seat, whose moves come from the solution */
 initPuzzles({
   board(fen) {
+    if (hooks.vleave) hooks.vleave();   /* puzzles use the normal board */
     S.gameId++; cancelThinking(); cancelPremove();
     S.pzBoard = true; S.tourney = null; resetChat();   /* the puzzle board: no chat, never saved as your game */
     const pos = new C.Pos(fen, 0, false);
@@ -1845,6 +1955,13 @@ async function watchStockfish() {
 /* ================= boot ================= */
 Object.assign(hooks, {play, render, afterMove, schedule, sync: () => syncRelay(), history: renderHistory, newTab: () => showMode('hub'), compete: () => renderCompete(), tourneyDone, leagueGame, puzzles: () => renderPuzzles(), review: () => renderReviewTab(), chatChanged: saveEndChat, applyLevel});
 initCompete({startGame, showTab, gameOn, rate, readSeat, paintAvatar, replayGame: g => replayGame(g), BUILTIN_ELO});
+/* a variant game takes the stage: the normal game waits, paused */
+hooks.suspend = () => {
+  if (S.pos && !S.over && S.moves.length && !S.paused && !S.pzBoard) { S.paused = true; cancelThinking(); render(); syncRelay(); toast('Your game on the normal board is paused'); }
+};
+hooks.tabChanged = t => { if (t !== 'new' && !vstate.active) vEndPreview(); };
+initVariants({showTab, activeTab, render: () => render(), paintAvatar, previewSeats: () => [readSeat(0), readSeat(1)], showMode: m => showMode(m),
+  confetti: w => confetti(w), sound: k => tick(k === 'capture')});
 initReview({goView, curPly, render, showTab, activeTab, tick, clearSel, exploreMove, humanSide, winPly, paintAvatar});
 for (const e of document.querySelectorAll('[data-ic]')) e.insertAdjacentHTML('afterbegin', icon(e.dataset.ic));
 (async () => {
@@ -1861,7 +1978,8 @@ for (const e of document.querySelectorAll('[data-ic]')) e.insertAdjacentHTML('af
   await Promise.all([0, 1].filter(i => $('type' + i).value === 'llm').map(i => loadModels(i)));
   const restored = await tryRestore();
   if (!restored && needsWelcome()) await welcome(hadSetup);
-  if (!restored) startGame();
+  if (!restored) startGame({boot: true});
+  if (!SHOT) await vRestore();   /* a variant game that was going on comes back on top */
   if (!SHOT) pollRelay();
   const h = /settings(?:=(\w+))?/.exec(location.hash);   /* e.g. #settings=engines */
   if (h) openSettings(h[1]);

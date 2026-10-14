@@ -117,6 +117,38 @@ export function finalEval(p) {
   return p.inCheck() ? {white: null, mate: p.turn ? 1 : -1, best: 0, pv: []} : {white: 0, mate: null, best: 0, pv: []};
 }
 
+/* what an illegal move (an unchecked move in chaos mode) actually did, in plain words */
+const NAME = ['', 'pawn', 'knight', 'bishop', 'rook', 'queen', 'king'];
+/* a bishop, rook or queen moving along its own lines, but through other pieces */
+function jumped(p, from, to, t) {
+  const df = (to & 7) - (from & 7), dr = (to >> 4) - (from >> 4), diag = Math.abs(df) === Math.abs(dr), line = !df || !dr;
+  if (!((t === C.BISHOP && diag) || (t === C.ROOK && line) || (t === C.QUEEN && (diag || line)))) return false;
+  const step = Math.sign(dr) * 16 + Math.sign(df);
+  for (let s = from + step; s !== to; s += step) if (p.b[s]) return true;
+  return false;
+}
+export function describeIllegal(p, m) {
+  const from = m & 127, to = (m >> 7) & 127, sp = (m >> 14) & 7, at = C.sqName(to);
+  if (from & 0x88) return `A ${NAME[sp] || 'piece'} appeared on ${at} out of nowhere: it was not on the board before.`;
+  const pc = p.b[from], t = pc & 7, victim = p.b[to], who = `The ${NAME[t] || 'piece'} on ${C.sqName(from)}`;
+  if (!pc) return `A piece moved from ${C.sqName(from)}, where there was none, to ${at}.`;
+  if (from === to) return sp && sp !== t ? `${who} turned into a ${NAME[sp]} without moving.` : `${who} "moved" to the square it was already standing on.`;
+  const parts = [];
+  if (victim && (victim >> 3) === (pc >> 3)) parts.push(`took its own ${NAME[victim & 7]} on ${at}`);
+  else if (victim && (victim & 7) === C.KING) parts.push(`captured the king on ${at}`);
+  else parts.push(`went to ${at}${victim ? `, taking the ${NAME[victim & 7]} there` : ''}`);
+  if (sp && sp !== t) parts.push(t === C.PAWN && ((to >> 4) === 7 || (to >> 4) === 0) ? `and promoted to a ${NAME[sp]}` : `and turned into a ${NAME[sp]}${t === C.PAWN ? ' before the last rank' : ''}`);
+  /* would it have been a legal move for that piece at all? */
+  let shape = false, legal = false;
+  try {
+    const q = new C.Pos(p.fen(), p.variant, p.c960), same = x => (x & 127) === from && ((x >> 7) & 127) === to && (((x >> 14) & 7) === sp || (!sp && !((x >> 14) & 7)));
+    shape = q.gen(false).some(same); legal = q.legalMoves().some(same);
+  } catch (e) {}
+  const how = victim && (victim >> 3) === (pc >> 3) ? '' : legal ? '' : shape ? ' The move itself is fine, but it leaves the king in check.'
+    : sp && sp !== t && t === C.PAWN && (to >> 4) !== 7 && (to >> 4) !== 0 ? '' : jumped(p, from, to, t) ? ' It jumped over pieces in the way.' : ` A ${NAME[t]} can't move like that.`;
+  return `${who} ${parts.join(' ')}.${how}`;
+}
+
 /* the whole review of a game.
    game: {startFen, variant, c960, moves, sans}; res[k]: the analysis of the position after k plies (res[0] = the start);
    book: the number of opening-book plies from the start.
@@ -130,6 +162,7 @@ export function reviewOf(game, res, book = 0) {
     const best = before && before.best ? p.san(before.best).replace(/\?!$/, '') : '';
     const sac = (m >> 17) & C.FL_FREE ? false : isSacrifice(p, m, game.variant, game.c960);
     const played = game.sans[k - 1].replace(/\?!$/, '');
+    const whyIllegal = (m >> 17) & C.FL_FREE ? describeIllegal(p, m) : '';
     p.make(m);
     const after = res[k] || finalEval(p);
     wins[k] = after ? winPct(after) : wins[k - 1];
@@ -145,11 +178,14 @@ export function reviewOf(game, res, book = 0) {
       if (cls && before && after) { const a = moveAccuracy(before, after, mover); accs[mover].push(a); phaseAcc[mover][phase].push(a); }
     }
     plies[k] = cls ? {cls, best, played, mover, phase, drop: before && after ? forSide(winPct(before), mover) - forSide(winPct(after), mover) : 0} : {cls: null, best, played, mover, phase, drop: 0};
+    if (cls === 'illegal') plies[k].why = whyIllegal;
     if (cls) counts[mover][cls] = (counts[mover][cls] || 0) + 1;
     if (KEY.includes(cls)) keys.push(k);
   }
   const acc = accs.map(accuracyOf);
   /* the estimated rating needs enough moves to mean anything */
   const rating = acc.map((a, i) => accs[i].length >= 8 ? gameRating(a) : null);
-  return {plies, counts, acc, rating, rated: accs.map(l => l.length), phases: phaseAcc.map(side => side.map(l => accClass(accuracyOf(l)))), keys, wins};
+  /* a rating per phase, when that side played at least four scored moves in it */
+  const phaseRating = phaseAcc.map(side => side.map(l => l.length >= 4 ? gameRating(accuracyOf(l)) : null));
+  return {plies, counts, acc, rating, rated: accs.map(l => l.length), phases: phaseAcc.map(side => side.map(l => accClass(accuracyOf(l)))), phaseRating, keys, wins};
 }

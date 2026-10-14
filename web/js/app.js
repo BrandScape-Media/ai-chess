@@ -365,7 +365,7 @@ function rate(P, reroll) {
 }
 /* the game ends: remember the result once, update your rating against a single computer opponent */
 function finish(over) {
-  if (S.over) return;
+  if (S.over || S.pzBoard) return;   /* the puzzle board is not a game: no result, no rating */
   S.over = over; S.resultClosed = false; S.resultDelta = null;
   const hum = [0, 1].filter(i => S.seats[i].type === 'human');
   if (hum.length === 1 && over.result !== '*' && S.moves.length >= 2) {
@@ -637,7 +637,7 @@ function afterMove() { checkOver(); render(); syncRelay(); schedule(); runPremov
    In chaos mode (with illegal moves allowed for you) it is played even when it is no longer legal. */
 const humanSide = () => humanCount() === 1 ? S.seats.findIndex(P => P.type === 'human') : -1;
 function canPremove() {
-  if (S.pz) return false;
+  if (S.pz || S.pzBoard) return false;
   const me = humanSide();
   return me >= 0 && SET.appearance.premoves !== false && !S.over && S.viewPly == null && !S.inactive && S.pos.turn !== me;
 }
@@ -886,8 +886,8 @@ function render() {
   const bub = $('bubble');
   if (S.sayBy === -3) { if (S.fbShown !== curKey()) { bub.hidden = true; bub.className = ''; S.say = ''; S.sayBy = -1; } }   /* move feedback */
   else if (S.say && (S.sayBy >= 0 || S.sayBy === -2)) { bub.className = ''; bub.hidden = false; bub.innerHTML = ''; bub.append(el('b', {}, (S.sayBy === -2 ? 'Hint' : seatName(S.sayBy)) + ': '), S.say); } else bub.hidden = true;
-  $('bUndo').disabled = !S.moves.length || !!S.replay || !!S.pz;
-  $('bResign').hidden = !!S.pz;
+  $('bUndo').disabled = !S.moves.length || !!S.replay || !!S.pz || !!S.pzBoard;
+  $('bResign').hidden = !!S.pz || !!S.pzBoard;   /* also once a puzzle run ends: the board keeps it, but there is no game */
   const hc = humanCount();
   label($('bResign'), 'flag', hc ? 'Resign' : 'Stop');
   $('bResign').disabled = !!S.over || (!S.moves.length && hc > 0);
@@ -1086,6 +1086,9 @@ function renderStrips(vp) {
     $('name' + pfx).title = (P && P.type === 'llm' ? P.model + ' @ ' + P.provider + '. ' : '') + card;
     $('strip' + pfx).classList.toggle('turn', !S.over && vp.turn === c);
     $('clock' + pfx).dataset.side = c;
+    const note = P && P.pzNote, badge = $('badge' + pfx);   /* Puzzle Battle: the bot's score (puzzles.js) */
+    if (note) badge.textContent = note;
+    badge.classList.toggle('note', !!note);
   };
   fill('Top', S.flipped ? 0 : 1); fill('Bot', S.flipped ? 1 : 0);
 }

@@ -1355,16 +1355,26 @@ async function runAssist(seq, gid, key) {
     }
   } catch (e) { console.warn('analysis', e); }
 }
+let barLast = null;
+/* the bar's label: no sign (the side it sits on says who is better), short enough for the narrow bar */
+function barEval(r) {
+  if (r.mate != null) return 'M' + Math.abs(r.mate);
+  const v = Math.abs((r.white || 0) / 100);
+  return v >= 9.95 ? String(Math.round(v)) : v.toFixed(1);
+}
 /* eval bar, engine line, arrows: drawn from the latest analysis */
 function drawAssist() {
   const A = assistOn(), key = curKey(), r = S.an && S.an.key === key ? S.an.res : null;
   const bar = $('evalbar');
   bar.hidden = !A.evalbar;
   if (A.evalbar) {
-    const w = r ? winPct(r) : 50;
+    /* while the new position is being analysed the bar keeps the last value instead of jumping back to even */
+    if (r) barLast = {gid: S.gameId, w: winPct(r), txt: barEval(r)};
+    else if (barLast && barLast.gid !== S.gameId) barLast = null;
+    const w = barLast ? barLast.w : 50;
     bar.classList.toggle('flipped', !!S.flipped); bar.classList.toggle('wait', !r);
     bar.style.setProperty('--w', w + '%');
-    bar.querySelector('.ev').textContent = r ? fmtEval(r) : '';
+    bar.querySelector('.ev').textContent = barLast ? barLast.txt : '';
     bar.classList.toggle('blackahead', w < 50);
   }
   const line = $('eline');

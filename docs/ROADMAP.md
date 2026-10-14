@@ -13,11 +13,12 @@ Next:
 
 ## Phase C: Puzzles (1.3.1)
 
-1. Daily puzzle with a streak.
-2. Themes dashboard: accuracy per theme (lichess themes), "Practise this theme".
-3. Storm-style combos in Puzzle Rush: bonus seconds for runs of correct moves, a time penalty for a miss.
-4. Puzzle Battle against a bot that solves at a simulated rating.
-5. Optional download of the full lichess puzzle database (about 5 million puzzles, offline). Python's standard library has no zstd before 3.14, so host a repacked, rating-bucketed copy on the Releases page and serve it through `/api/puzzles?rating=&theme=`.
+Done in 1.3.1: the daily puzzle with a streak; the themes dashboard (strengths, what needs work) with Practise this theme; Storm-style combo bonus seconds in Puzzle Rush; Puzzle Battle against a bot; the optional download of the full lichess puzzle database (about 5 million puzzles, offline, SQLite, picked by rating and theme). Also in 1.3.1: the first-start level picker, the History redesign, chat that stays with its game.
+
+Next:
+1. Artwork for the new modes (Rush, Daily, Themes, Battle's puzzle bot, the database card): prompts are in the 1.3.1 notes; generate them with the local image generator.
+2. Puzzle Battle against another person on the LAN.
+3. A puzzle rating graph (comes with Phase F's profile).
 
 ## Phase D: Tournaments (1.3.2)
 

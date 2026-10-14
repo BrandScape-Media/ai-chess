@@ -20,6 +20,7 @@ jobs:
           node-version: 22
       - run: node tests/core.test.js
       - run: node tests/review.test.js
+      - run: node tests/puzzles.test.js
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

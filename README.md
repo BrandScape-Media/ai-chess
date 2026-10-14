@@ -10,7 +10,7 @@ Everything runs on your own machine. One file to download, nothing to install.
 
 **Windows:** download `ai-chess-windows.exe` from the [Releases page](https://github.com/BrandScape-Media/ai-chess/releases) and double-click it. The game opens in its own window and closes itself when you close the window. (The program isn't code-signed, so Windows may say "Windows protected your PC": click *More info* → *Run anyway*.)
 
-**Any system with Python 3.10+:** no packages needed.
+**Any system with Python 3.10+:** no packages needed. (Only the optional offline puzzle database needs a zstd decoder when you run from source: Python 3.14+ has one built in, otherwise `pip install zstandard`. The downloadable programs include it.)
 
 ```bash
 git clone https://github.com/BrandScape-Media/ai-chess
@@ -86,10 +86,15 @@ Like the chat on chess.com: talk to the model while you play. Every computer opp
 * **Arrows and circles** like on chess.com (right-click drag; Shift/Alt/Ctrl for colors), plus a sneaky option: **let the opponent peek at your arrows**. Plan honestly, or bait it.
 * **Clocks:** bullet (1, 1|1, 2|1), blitz (3, 3|2, 5), rapid (10, 10|5, 15|10) or 30 minutes. Everybody plays on the clock: engines manage their time like in a real game, and AI models can lose on time (or play untimed if you prefer).
 * **Premoves:** queue one or several moves while the opponent thinks. In chaos mode they are played even when they've become illegal.
-* **Game history** with the winner of every game, replay and PGN.
+* **Game history**, grouped by day: every game as a card with the result, your rating change, how it ended, your accuracy once reviewed, and buttons to review, replay or copy the PGN. Each game keeps its chat, shown read-only when you replay it.
+* **Your level:** the first time you start, pick how well you play (New to chess to Expert). It sets your starting rating and how strong your opponents are by default. Change it any time in Settings, You.
 * **Game Review**, like on chess.com: when a game ends, Stockfish looks at every move (a quick pass fills the result card in seconds, then a deep pass at depth 18). The **Review** tab shows both sides' accuracy and an estimated game rating, the opening's name, an evaluation graph you can click, every move class for both sides (Brilliant, Great, Best, Excellent, Good, Book, Inaccuracy, Miss, Mistake, Blunder) and how each phase went. Step through it with a coach that explains every move from the engine's lines (what the move allowed, what the better one wins), jump between key moments with `[` and `]`, and press **Explain** to have your own AI model explain a move, given only the engine's facts so it doesn't make things up. Reviews are saved with the game and reopen instantly from the history.
 * **Retry your mistakes:** the position before each of your mistakes becomes a little puzzle (the answer shows after two tries), one by one or as a drill through the whole game. The ones you get wrong come back later in **Puzzles → Your mistakes** until you get them right twice in a row.
-* **Puzzles:** about 3,000 puzzles from the lichess puzzle database (CC0), with your own puzzle rating, **Puzzle Streak** (one mistake ends it), **Puzzle Rush** (5 minutes, 3 strikes) and **Your mistakes** (positions from your own games).
+* **Puzzles:** about 3,000 puzzles from the lichess puzzle database (CC0) come with the game, with your own puzzle rating:
+  * **Daily puzzle** with a streak, **Puzzle Streak** (one mistake ends it), **Puzzle Rush** (5 minutes, 3 strikes, and bonus seconds for runs of correct moves, like lichess Storm) and **Puzzle Battle** (race a puzzle bot through the same puzzles for 3 minutes).
+  * **Themes:** your accuracy per theme (forks, pins, mates in 2 and dozens more), your strengths and what needs work, and **Practise this theme**.
+  * **Your mistakes:** positions from your own games where you went wrong.
+  * **The full lichess puzzle database**, about 5 million puzzles, is an optional one-click download (about 300 MB, about 650 MB on disk) that works offline from then on.
 * **Assistance like on chess.com:** evaluation bar, move feedback (best, excellent, inaccuracy, mistake, blunder), suggestion and threat arrows, engine line. Switch them on before the game or from the gear during it. They use Stockfish (or another installed engine) and work offline.
 * **Ratings:** engines show realistic Elo estimates, every AI model gets a random rating for the game, and your own rating goes up and down as you win and lose.
 * **Hints** (best move from Stockfish or the built-in engine) and **takebacks**, each can be switched off.
@@ -103,10 +108,10 @@ Like the chat on chess.com: talk to the model while you play. Every computer opp
 ## Command line
 
 ```
-python server.py [--port 8800] [--lan] [--no-browser] [--app | --tab] [--exit-when-idle SEC] [--data DIR]
+python server.py [--port 8800] [--lan] [--no-browser] [--app | --tab] [--exit-when-idle SEC] [--data DIR] [--no-stockfish]
 ```
 
-`--lan` lets other devices on your network play (they can use your AI providers too). `--app` opens a chromeless Edge/Chrome window (default for the .exe).
+`--lan` lets other devices on your network play (they can use your AI providers too). `--app` opens a chromeless Edge/Chrome window (default for the .exe). `--no-stockfish` skips setting up Stockfish on the first start.
 
 ## Building the .exe yourself
 

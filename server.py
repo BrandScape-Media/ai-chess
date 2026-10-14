@@ -31,7 +31,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from puzzledb import PuzzleDB
 from uci import Engines
 
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 FROZEN = getattr(sys, "frozen", False)
 APP_DIR = Path(sys.executable if FROZEN else __file__).resolve().parent
 BUNDLE = Path(getattr(sys, "_MEIPASS", APP_DIR))

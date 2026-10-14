@@ -739,6 +739,9 @@ function paintRace() {
     const tr = lane.querySelector('.trail');
     if (tr.childElementCount !== Math.min(12, L.log.length) || tr.dataset.n !== String(L.log.length)) { tr.dataset.n = L.log.length; tr.replaceChildren(...L.log.slice(-12).map(dot)); }
   }
+  /* the bot's score on the opponent's player strip too, for narrow windows where the panel is under the board (app.js shows P.note) */
+  const Q = S.seats.find(x => x && x.type === 'puzzle'), note = R.over ? '' : `Puzzle bot ${R.bot.score}` + (R.bot.strikes ? ` · ${R.bot.strikes} ${R.bot.strikes === 1 ? 'strike' : 'strikes'}` : '');
+  if (Q && Q.note !== note) { Q.note = note; app.render(); }
 }
 function paintThink(R, now) {
   const b = $('botThink'), c = R.bot && R.bot.cur; if (!b) return;

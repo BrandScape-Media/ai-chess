@@ -58,30 +58,29 @@ function remember(id) {
   try { localStorage.setItem('aichess.pzseen', JSON.stringify(last)); } catch (e) {}
 }
 const prep = p => { p.ts = (p.t || '').split(' ').filter(Boolean); return p; };
-async function load() {
-  if (!list) {
-    const l = await (await fetch('puzzles/puzzles.json')).json();
-    for (const p of l) { prep(p); for (const t of p.ts) counts[t] = (counts[t] || 0) + 1; }
-    list = l;
-  }
-  return list;
+/* one fetch at a time: the home panel draws several times while it opens */
+let loading = null;
+function load() {
+  if (list) return Promise.resolve(list);
+  if (!loading) loading = fetch('puzzles/puzzles.json').then(r => r.json()).then(l => {
+    const c = {};
+    for (const p of l) { prep(p); for (const t of p.ts) c[t] = (c[t] || 0) + 1; }
+    counts = c; return list = l;
+  }).finally(() => { loading = null; });
+  return loading;
 }
-/* a random puzzle near the target from the bundled list: unseen first, then older ones again (never one of another level) */
-function pick(target, {theme, exclude} = {}) {
-  const ex = new Set([...seen, ...(exclude || [])]);
-  return K.pickFrom(list, target, {theme, exclude: ex}) || K.pickFrom(list, target, {theme, exclude: new Set(exclude || [])})
-    || K.pickFrom(list, target, {theme}) || K.pickFrom(list, target);
-}
+/* a random puzzle near the target from the bundled list: unseen ones at your level, then older ones at your level, then further away */
+const pick = (target, {theme, exclude} = {}) => K.pickNear(list, target, {theme, seen, exclude: new Set(exclude || [])});
 export function initPuzzles(api) { app = api; }
 
 /* ---------- the full lichess database (optional, see server.py /api/puzzles) ---------- */
 /* db: undefined (not asked yet), null (ask again), false (this version has none), or the status object */
-let db, dbAt = 0, dbPoll = 0, dbThemes = null;
-async function dbStatus(force) {
-  if (db === false || (!force && db && Date.now() - dbAt < 4000)) return db;
-  try { setDb(await api('/api/puzzles')); }
-  catch (e) { db = e.status && e.status !== 404 ? null : false; }   /* 404 or no server: not in this version, hide the card */
-  return db;
+let db, dbAt = 0, dbPoll = 0, dbThemes = null, dbAsk = null;
+function dbStatus(force) {
+  if (db === false || (!force && db && Date.now() - dbAt < 4000)) return Promise.resolve(db);
+  if (!dbAsk) dbAsk = api('/api/puzzles').then(setDb).catch(e => { db = e.status && e.status !== 404 ? null : false; })   /* 404 or no server: not in this version, hide the card */
+    .then(() => db).finally(() => { dbAsk = null; });
+  return dbAsk;
 }
 function setDb(s) {
   const was = db && db.job && db.job.state === 'running';
@@ -149,6 +148,7 @@ async function next() {
   if (!R || R.over || R.loading || R.setup || R.out) return;
   if (R.mode === 'mistakes') return nextPractice();
   R.loading = true;
+  retire(R); renderPanel();   /* a slow database: the old puzzle takes no more moves while the next one comes */
   let p = null;
   try { p = await puzzleFor(R); } catch (e) { console.warn('puzzle', e); }
   R.loading = false;
@@ -196,7 +196,7 @@ export function puzzleMove(m) {
     return;
   }
   if (uci === want || mate) {
-    pz.idx++;
+    pz.idx++; pz.msg = '';
     if (R.mode === 'rush') comboUp(R);
     if (pz.idx >= pz.moves.length || mate) return solved(pz);
     pz.state = 'busy'; renderPanel();
@@ -230,7 +230,7 @@ function wrong(pz) {
     if (R.mode === 'battle') {
       R.log.push(0); R.out = R.strikes >= STRIKES; paintRace();
       if (battleCheck()) return;
-      if (R.out) { pz.state = 'ended'; R.last = pz; S.pz = null; renderPanel(); return; }   /* you are out: the bot may still catch up */
+      if (R.out) { retire(R); renderPanel(); return; }   /* you are out: the bot may still catch up */
     } else if (R.strikes >= STRIKES) { endRun(`Three strikes. You solved ${R.score}.`); return; }
     pz.state = 'busy'; renderPanel();
     setTimeout(() => { if (S.pzRun === R && S.pz === pz && !R.over) next(); }, 500);
@@ -276,6 +276,10 @@ function endRun(msg) {
 /* the run is over: the last puzzle stays on the board, which takes no more moves */
 function settle(R) {
   R.left = R.end ? Math.max(0, R.end - performance.now()) : 0;
+  retire(R);
+}
+/* done with the puzzle on the board: it stays there (as R.last) but takes no moves, and its timers stop (they see S.pz change) */
+function retire(R) {
   if (S.pz) { S.pz.state = 'ended'; R.last = S.pz; }
   S.pz = null;
 }
@@ -306,13 +310,13 @@ function hint() {
   const pz = S.pz; if (!pz || pz.state !== 'you') return;
   const m = S.pos.fromUci(pz.moves[pz.idx]); if (!m) return;
   if (!pz.practice) outcome(pz, false);
-  pz.failed = true; pz.hinted = true; pz.msg = '';   /* solved with a hint: not at the first try */
+  pz.failed = true; pz.hintAt = pz.idx; pz.msg = '';   /* solved with a hint: not at the first try. The circle is for this move only */
   S.circles = [{s: m & 127, c: 'b'}]; app.render(); renderPanel();
 }
 function skip() {
   const R = S.pzRun, pz = S.pz;
   if (!R || R.loading) return;
-  if (pz && pz.state !== 'solved' && pz.state !== 'shown') { outcome(pz, false); R.done++; }   /* skipping one you have seen counts as a miss */
+  if (pz && pz.state === 'you') { outcome(pz, false); R.done++; }   /* skipping one you have tried counts as a miss */
   next();
 }
 
@@ -463,7 +467,7 @@ function record(pz, first) {
 /* leave the run for the puzzle home (the board keeps the puzzle, but takes no moves) */
 function toHome(v = 'home') {
   clearInterval(timer);
-  S.pzRun = null; idleBoard();
+  S.pzRun = null; idleBoard(); stripNote('');
   view = v; renderPanel();
 }
 export function exitPuzzles() {
@@ -508,8 +512,9 @@ function renderHome(box) {
 function dailyCard() {
   const D = P().daily, today = K.dayKey(), done = D.date === today && D.done;
   const streak = K.dailyStreak(D, today);
-  const days = el('div', {class: 'pzdays', 'aria-label': 'The last seven days'},
-    ...K.dailyWeek(D, today).map(d => el('span', {class: 'pzday ' + d.state + (d.k === today ? ' now' : ''), title: dayTitle(d)}, el('small', {}, d.dow), el('i', {}))));
+  const days = el('div', {class: 'pzdays', role: 'list', 'aria-label': 'The last seven days'},
+    ...K.dailyWeek(D, today).map(d => el('span', {class: 'pzday ' + d.state + (d.k === today ? ' now' : ''), role: 'listitem', title: dayTitle(d), 'aria-label': dayTitle(d)},
+      el('small', {'aria-hidden': 'true'}, d.dow), el('i', {}))));
   let status, btns;
   if (!done) {
     status = streak ? `Solve it to make it ${streak + 1} days in a row.` : 'A new puzzle every day. Solve it to start a streak.';
@@ -600,7 +605,7 @@ function themeList(title, ts) {
 
 /* ---------- a run ---------- */
 function renderRun(box, R) {
-  const M = MODES[R.mode], pz = S.pz || (R.over || R.out ? R.last : null), it = pz && pz.practice;
+  const M = MODES[R.mode], pz = S.pz || (R.over || R.out || R.loading ? R.last : null), it = pz && pz.practice;
   const you = pz && pz.p.fen ? pz.you ?? (new C.Pos(pz.p.fen, 0, false).turn ^ 1) : 0;
   const title = R.mode === 'theme' ? K.themeName(R.theme) : R.mode === 'daily' && R.replay ? 'Daily puzzle (again)' : M.name;
   box.append(head(title, () => toHome(R.mode === 'theme' ? 'themes' : 'home')));
@@ -627,20 +632,20 @@ function renderRun(box, R) {
     h = R.msg; cls = R.best ? 'good' : '';
     sub = [R.best ? 'New personal best.' : '', R.mode === 'rush' && R.comboBest ? `Best combo ${R.comboBest}${R.bestCombo ? ', your best yet' : ''}.` : '',
       R.empty ? 'After a game review, the moves where you went wrong come back here as puzzles.' : ''].filter(Boolean).join(' ');
-  } else if (R.mode === 'battle' && R.out) { h = 'You are out'; sub = `Puzzle bot is still going: ${R.bot.score} to your ${R.score}.`; }
-  else if (R.loading && !pz) { h = 'Getting puzzles ready'; sub = R.mode === 'battle' ? 'The same ones for you and the bot.' : ''; }
+  } else if (R.mode === 'battle' && R.out) { h = 'You are out'; sub = outLine(R); }
+  else if (R.loading) { h = pz ? 'Getting the next puzzle' : 'Getting puzzles ready'; sub = !pz && R.mode === 'battle' ? 'The same ones for you and the bot.' : ''; }
   else if (it && pz.state === 'solved') { h = pz.failed ? 'Solved' : 'Fixed'; cls = 'good'; sub = [pz.note, pz.learned ? 'Twice in a row: this one leaves your list.' : ''].filter(Boolean).join(' '); }
   else if (it && pz.state === 'shown') { h = 'That was the move'; sub = `${it.bestSan}. In the game you played ${it.played}.`; }
   else if (it && pz.state === 'busy') { h = 'Checking…'; sub = 'The engine looks at your move.'; }
-  else if (it && !(pz.msg && pz.state === 'you') && !pz.hinted) { h = `${you ? 'Black' : 'White'} to move`; sub = `Against ${it.opp}, move ${it.move}, you played ${it.played}: ${CLS_NAME[it.cls] || 'a mistake'}. Find a better move.`; }
+  else if (it && !(pz.msg && pz.state === 'you') && pz.hintAt !== pz.idx) { h = `${you ? 'Black' : 'White'} to move`; sub = `Against ${it.opp}, move ${it.move}, you played ${it.played}: ${CLS_NAME[it.cls] || 'a mistake'}. Find a better move.`; }
   else if (!pz || pz.state === 'opp') { h = 'Get ready'; sub = 'Your opponent moves first.'; }
   else if (pz.state === 'solved') { h = 'Solved'; cls = 'good'; sub = R.mode === 'daily' ? (R.replay ? 'No stats this time.' : dailyLine()) : pz.rated ? (pz.failed ? 'Not counted: you needed help.' : `Puzzle rated ${pz.p.r}.`) : pz.p.r ? `Puzzle rated ${pz.p.r}.` : ''; }
   else if (pz.state === 'shown') { h = 'That was the solution'; sub = (pz.p.r ? `Puzzle rated ${pz.p.r}.` : '') + (R.mode === 'daily' && !R.replay ? ' The streak needs you to finish it yourself.' : ''); }
   else if (pz.msg && pz.state === 'you') { h = 'Try again'; cls = 'bad'; sub = pz.msg; }
-  else if (pz.hinted && pz.state === 'you') { h = 'Hint: the circled piece moves'; sub = pz.rated ? 'This one no longer counts as solved.' : ''; }
+  else if (pz.hintAt === pz.idx && pz.state === 'you') { h = 'Hint: the circled piece moves'; sub = pz.rated ? 'This one no longer counts as solved.' : ''; }
   else { h = `${you ? 'Black' : 'White'} to move`; sub = R.mode === 'daily' ? 'Find the best move. Take your time.' : 'Find the best move.'; }
   const key = h + cls, msg = el('div', {class: 'pzmsg ' + cls + (key === lastMsg ? ' still' : ''), role: 'status'},
-    el('span', {class: 'side ' + (you ? 'b' : 'w')}), el('div', {}, el('b', {}, h), sub ? el('small', {}, sub) : null));
+    el('span', {class: 'side ' + (you ? 'b' : 'w')}), el('div', {}, el('b', {}, h), sub ? el('small', {id: 'pzSub'}, sub) : null));
   lastMsg = key;   /* the message pops in only when it changes */
   box.append(msg);
   /* the puzzle's themes: each one starts a practice run */
@@ -657,6 +662,7 @@ function renderRun(box, R) {
   if (R.mode === 'battle') paintRace();
   if (R.end && !R.over) { const now = performance.now(); paintClock(R, now); paintMod(R); if (R.mode === 'battle') paintThink(R, now); }
 }
+const outLine = R => `Puzzle bot is still going: ${R.bot.score} to your ${R.score}.`;
 const dailyLine = () => { const s = K.dailyStreak(P().daily, K.dayKey()); return s > 1 ? `${s} days in a row. Back tomorrow.` : 'Back tomorrow for the next one.'; };
 function buttons(R, pz) {
   const btns = el('div', {class: 'pzbtns'}), B = (label, onclick, o = {}) => el('button', {type: 'button', onclick, ...o}, label);
@@ -669,11 +675,11 @@ function buttons(R, pz) {
     else btns.append(B('Hint', hint, {disabled: waiting}), B('Solution', showSolution, {disabled: waiting}), B('Skip', () => { R.n++; next(); }));
   } else if (R.mode === 'daily') {
     if (after) btns.append(B('Back to puzzles', () => toHome(), {class: 'primary'}));
-    else btns.append(B('Hint', hint, {disabled: waiting || !!pz.hinted}), B('Solution', showSolution, {disabled: waiting}));
+    else btns.append(B('Hint', hint, {disabled: waiting || pz.hintAt === pz.idx}), B('Solution', showSolution, {disabled: waiting}));
   } else if (RATED.has(R.mode)) {
     if (after) btns.append(B('Next puzzle', () => next(), {class: 'primary', disabled: !!R.loading}));
-    else btns.append(B('Hint', hint, {disabled: waiting || !!pz.hinted}), B('Solution', showSolution, {disabled: waiting}),
-      B('Skip', skip, {disabled: !pz || pz.state === 'busy' || !!R.loading, title: 'Counts as a miss'}));
+    else btns.append(B('Hint', hint, {disabled: waiting || pz.hintAt === pz.idx}), B('Solution', showSolution, {disabled: waiting}),
+      B('Skip', skip, {disabled: waiting || !!R.loading, title: 'Counts as a miss'}));
   } else if (R.mode === 'streak') btns.append(B(`Skip (${R.skip})`, () => { R.skip = 0; next(); }, {disabled: !R.skip || waiting, title: 'One skip per streak'}), B('End', () => endRun(`You stopped at ${R.score}.`)));
   else if (R.mode === 'battle') {
     if (R.out) btns.append(B('Finish now', finishNow, {class: 'primary', title: 'Play out the bot\'s remaining puzzles at once'}));
@@ -687,7 +693,8 @@ function stat(v, label, delta, kind, title) {
       delta != null ? el('span', {class: delta >= 0 ? 'up' : 'down'}, (delta >= 0 ? ' +' : ' ') + delta) : null,
       kind === 'time' ? el('span', {class: 'pzmod', id: 'pzMod', 'aria-live': 'polite'}) : null), el('small', {}, label));
 }
-const pips = n => el('b', {class: 'pips'}, ...Array.from({length: STRIKES}, (_, i) => el('i', {class: i < n ? 'on' : '', html: ICONS.x})));
+const pipsLabel = n => `${n} of ${STRIKES} strikes`;
+const pips = n => el('b', {class: 'pips', role: 'img', 'aria-label': pipsLabel(n)}, ...Array.from({length: STRIKES}, (_, i) => el('i', {class: i < n ? 'on' : '', html: ICONS.x})));
 const strikes = n => el('div', {class: 'pzstat strikes'}, pips(n), el('small', {}, 'Strikes'));
 /* ---------- in-place painting (no rebuild, so nothing pops in again) ---------- */
 function paintClock(R, now) {
@@ -721,7 +728,7 @@ function raceCard(R) {
   const lane = (who, name, rating, img) => el('div', {class: 'lane', id: 'lane' + who},
     el('img', {class: 'av', src: img, alt: ''}), el('span', {class: 'who'}, el('b', {}, name), el('small', {}, String(rating))),
     pips(0), el('b', {class: 'score'}, '0'),
-    el('span', {class: 'row2'}, el('span', {class: 'trail', 'aria-label': 'Last results'}),
+    el('span', {class: 'row2'}, el('span', {class: 'trail', role: 'img', 'aria-label': 'No results yet'}),
       who === 'Bot' ? el('span', {class: 'think', title: 'The bot working on its puzzle'}, el('i', {id: 'botThink'})) : null));
   const card = el('div', {class: 'pzrace'}, el('div', {class: 'racehead'}, el('small', {}, 'Time left'), el('b', {id: R.over ? null : 'pzTime', class: 'rclock'}, K.fmtClock(R.over ? R.left : R.end ? R.end - performance.now() : BATTLE_MS))),
     lane('You', 'You', P().rating, 'avatars/human.webp'), lane('Bot', R.bot.name, R.bot.rating, 'avatars/builtin.webp'));
@@ -734,14 +741,23 @@ function paintRace() {
     const lane = $('lane' + who); if (!lane) continue;
     lane.querySelector('.score').textContent = L.score;
     lane.querySelectorAll('.pips i').forEach((e, i) => e.classList.toggle('on', i < L.strikes));
+    lane.querySelector('.pips').setAttribute('aria-label', pipsLabel(L.strikes));
     lane.classList.toggle('out', !!L.out);
     lane.classList.toggle('lead', !!R.over && L.score > (who === 'You' ? R.bot.score : R.score));
     const tr = lane.querySelector('.trail');
-    if (tr.childElementCount !== Math.min(12, L.log.length) || tr.dataset.n !== String(L.log.length)) { tr.dataset.n = L.log.length; tr.replaceChildren(...L.log.slice(-12).map(dot)); }
+    if (tr.childElementCount !== Math.min(12, L.log.length) || tr.dataset.n !== String(L.log.length)) {
+      const last = L.log.slice(-12), ok = last.filter(Boolean).length;
+      tr.dataset.n = L.log.length; tr.replaceChildren(...last.map(dot));
+      tr.setAttribute('aria-label', last.length ? `Last results: ${ok} solved, ${last.length - ok} missed` : 'No results yet');
+    }
   }
-  /* the bot's score on the opponent's player strip too, for narrow windows where the panel is under the board (app.js shows P.note) */
-  const Q = S.seats.find(x => x && x.type === 'puzzle'), note = R.over ? '' : `Puzzle bot ${R.bot.score}` + (R.bot.strikes ? ` · ${R.bot.strikes} ${R.bot.strikes === 1 ? 'strike' : 'strikes'}` : '');
-  if (Q && Q.note !== note) { Q.note = note; app.render(); }
+  if (R.out && !R.over && $('pzSub')) $('pzSub').textContent = outLine(R);   /* you are out: the bot's score in the message keeps up */
+  stripNote(R.over ? '' : `Puzzle bot ${R.bot.score}` + (R.bot.strikes ? ` · ${R.bot.strikes} ${R.bot.strikes === 1 ? 'strike' : 'strikes'}` : ''));
+}
+/* the bot's score on the opponent's player strip too, for narrow windows where the panel is under the board (app.js shows pzNote) */
+function stripNote(note) {
+  const Q = S.seats.find(x => x && x.type === 'puzzle');
+  if (Q && (Q.pzNote || '') !== note) { Q.pzNote = note; app.render(); }
 }
 function paintThink(R, now) {
   const b = $('botThink'), c = R.bot && R.bot.cur; if (!b) return;

@@ -1,7 +1,7 @@
 // Puzzle logic (web/js/puzzle-core.js): daily choice and streak, Rush combos, the Battle bot, theme stats and names.
 import {readFileSync} from 'fs';
 import {dayKey, prevDay, hash32, dailyChoice, dailyMark, dailyStreak, dailyWeek, comboBonus, comboLevel, botPlan, botOdds, botChoices,
-  battleEnd, targetRating, pickFrom, META, themePerf, tallyAdd, themeDash, THEME_NAMES, THEME_GROUPS, themeName, fmtClock, fmtBytes} from '../web/js/puzzle-core.js';
+  battleEnd, targetRating, pickFrom, pickNear, META, themePerf, tallyAdd, themeDash, THEME_NAMES, THEME_GROUPS, themeName, fmtClock, fmtBytes} from '../web/js/puzzle-core.js';
 
 let fail = 0;
 function check(name, got, want) {
@@ -103,6 +103,20 @@ check('pick: theme', fk.ts.includes('fork') && Math.abs(fk.r - 1500) <= 80, true
 check('pick: no substring match', pickFrom(list, 1500, {theme: 'mat'}), null);
 check('pick: exclude', pickFrom(list.slice(0, 1), 500, {exclude: new Set([list[0].id])}), null);
 check('pick: widens', !!pickFrom(list, 3500), true);
+check('pick: maxW caps the window', pickFrom(list, 4000, {maxW: 320}), null);
+{
+  /* everything near 400 already seen: an older puzzle at that level beats an unseen one far away */
+  const near = list.filter(p => Math.abs(p.r - 400) <= 320), seen = new Set(near.map(p => p.id)), rnd = seeded(5);
+  const rs = Array.from({length: 200}, () => pickNear(list, 400, {seen, rnd}).r);
+  check('pickNear: seen near before unseen far', rs.every(r => Math.abs(r - 400) <= 320), true);
+  const fresh = pickNear(list, 400, {seen: new Set(near.slice(1).map(p => p.id)), rnd});
+  check('pickNear: the one unseen near puzzle first', fresh.id, near[0].id);
+  /* this run used them all: then further away, never a repeat within the run */
+  const far = pickNear(list, 400, {exclude: seen, rnd});
+  check('pickNear: run puzzles excluded before widening', !seen.has(far.id) && Math.abs(far.r - 400) > 320, true);
+  check('pickNear: theme kept', pickNear(list, 1500, {theme: 'fork', seen: new Set(list.map(p => p.id)), rnd}).ts.includes('fork'), true);
+  check('pickNear: unknown theme still gives a puzzle', !!pickNear(list, 1500, {theme: 'nope', rnd}), true);
+}
 
 // ---- themes ----
 check('META leaves out lengths and goals', ['short', 'mateIn2', 'crushing', 'superGM'].every(t => META.has(t)) && !META.has('mate') && !META.has('endgame'), true);

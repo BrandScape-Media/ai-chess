@@ -82,14 +82,24 @@ export function targetRating(mode, n, rating) {
   if (mode === 'battle') return Math.min(2650, 600 + n * 60);
   return rating;
 }
-/* a random puzzle near the target, widening the window until something fits */
-export function pickFrom(list, target, {theme, exclude, rnd = Math.random} = {}) {
+/* a random puzzle near the target, widening the window until something fits (no wider than maxW) */
+export function pickFrom(list, target, {theme, exclude, maxW = 3000, rnd = Math.random} = {}) {
   const ok = p => (!theme || (p.ts || p.t.split(' ')).includes(theme)) && !(exclude && exclude.has(p.id));
   for (const w of [80, 160, 320, 3000]) {
+    if (w > maxW) break;
     const c = list.filter(p => Math.abs(p.r - target) <= w && ok(p));
     if (c.length) return c[Math.floor(rnd() * c.length)];
   }
   return null;
+}
+/* nearest first: one you have not seen at about this level, then an older one at this level, and only then further away.
+   exclude (this run's puzzles) is dropped last of all, the theme only when it has no puzzles at all */
+export const NEAR = 320;
+export function pickNear(list, target, {theme, seen = new Set(), exclude = new Set(), rnd} = {}) {
+  const both = new Set([...seen, ...exclude]);
+  return pickFrom(list, target, {theme, exclude: both, maxW: NEAR, rnd}) || pickFrom(list, target, {theme, exclude, maxW: NEAR, rnd})
+    || pickFrom(list, target, {theme, exclude: both, rnd}) || pickFrom(list, target, {theme, exclude, rnd})
+    || pickFrom(list, target, {theme, rnd}) || pickFrom(list, target, {rnd});
 }
 
 /* ---------- theme statistics (as the lichess puzzle dashboard) ---------- */

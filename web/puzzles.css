@@ -137,5 +137,5 @@
 .pzdb .bar{height:6px}
 .pzdb .bar.wait i{width:35%!important;animation:pzSlide 1.4s var(--ease) infinite}
 @keyframes pzSlide{from{transform:translateX(-100%)}to{transform:translateX(290%)}}
-/* Puzzle Battle on the opponent's player strip (app.js adds .note when it shows P.note instead of illegal moves) */
+/* Puzzle Battle on the opponent's player strip (app.js adds .note when it shows the seat's pzNote) */
 .flagbadge.note{background:var(--panel3);color:var(--muted);font-variant-numeric:tabular-nums}
